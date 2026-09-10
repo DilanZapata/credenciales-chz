@@ -1,2 +1,3 @@
-# Directorio interno: nunca accesible por HTTP.
+# El arbol de la aplicacion no es descargable. Las excepciones (endpoints y
+# assets) se declaran en sus propios directorios.
 Require all denied

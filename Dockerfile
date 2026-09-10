@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Apache ----------------------------------------------------------
-#  El DocumentRoot apunta a public/: el resto del proyecto queda fuera
-#  del alcance del servidor web.
+#  El DocumentRoot apunta a la raiz (patron de Porcify Manager). Los
+#  .htaccess de cada directorio deniegan el arbol interno.
 RUN a2enmod rewrite headers \
     && a2dismod -f autoindex \
     && sed -i 's/ServerTokens OS/ServerTokens Prod/' /etc/apache2/conf-available/security.conf \
@@ -41,8 +41,8 @@ RUN rm -f .env \
     && chmod -R 750 storage \
     && find /var/www/html -type f -name '*.php' -exec chmod 640 {} \; \
     && find /var/www/html -type d -exec chmod 750 {} \; \
-    && chmod 755 /var/www/html/public \
-    && chmod 644 /var/www/html/public/.htaccess 2>/dev/null || true
+    && chmod 755 /var/www/html \
+    && find /var/www/html -name '.htaccess' -exec chmod 644 {} \;
 
 #  Verificacion en tiempo de construccion. Si falta una extension critica
 #  la imagen NO se publica: vale mas romper aqui que descubrirlo en

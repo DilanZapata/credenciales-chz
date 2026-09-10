@@ -859,8 +859,12 @@ $t->assert(!str_contains($r['headers']['Location'] ?? '', 'sitio-malicioso'),
 // Errores sin filtracion de detalles internos
 $r = $admin->get('/credenciales/99999999');
 $t->status(404, $r, 'Un identificador inexistente responde 404 limpio');
-$t->assert(!str_contains($r['body'], 'SQLSTATE') && !str_contains($r['body'], '/app/')
-    && !str_contains($r['body'], 'Stack trace'),
+// Se busca la ruta REAL del proyecto en el sistema de archivos, no el
+// fragmento "/app/": ese aparece legitimamente en la URL de los assets.
+$t->assert(!str_contains($r['body'], 'SQLSTATE')
+    && !str_contains($r['body'], $root)
+    && !str_contains($r['body'], 'Stack trace')
+    && preg_match('/\.php on line \d+/', $r['body']) !== 1,
     'Los errores no exponen rutas internas, SQL ni trazas');
 
 $r = $anon->get('/ruta/que/no/existe');

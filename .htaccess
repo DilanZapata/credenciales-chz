@@ -1,23 +1,34 @@
 # ---------------------------------------------------------------------
-#  Raiz del proyecto.
+#  Enrutado (patron de Porcify Manager)
 #
-#  Lo ideal es que el DocumentRoot del servidor apunte directamente a
-#  public/ y que este directorio NO sea alcanzable por HTTP. Cuando eso no
-#  es posible (por ejemplo en una instalacion XAMPP bajo htdocs/), aqui
-#  solo se permite el index.php de cortesia que redirige a public/, y se
-#  bloquea el acceso a cualquier archivo interno.
+#     /credenciales      ->  index.php?views=credenciales
+#     /credenciales/12   ->  index.php?views=credenciales/12
+#
+#  A diferencia de la referencia, aqui el arbol interno NO queda expuesto:
+#  este sistema guarda secretos y su codigo no debe poder descargarse.
 # ---------------------------------------------------------------------
+RewriteEngine On
+Options All -Indexes
 
-Options -Indexes -MultiViews
-DirectoryIndex index.php
+# Los assets se sirven directamente; el resto va al controlador frontal.
+RewriteRule ^([a-zA-Z0-9/ñÑ_-]+)$ index.php?views=$1 [QSA,L]
 
-# Todo archivo sensible queda bloqueado aunque cambie la configuracion
-# del servidor o alguien copie algo por error en esta carpeta.
-<FilesMatch "(^\.|\.(env|sql|log|md|json|lock|ini|bak|sqlite|yml|yaml|xlsx|csv)$)">
+# ------------------- Proteccion del arbol interno --------------------
+# Solo son alcanzables index.php, los endpoints de app/api/ y los assets
+# de app/views/{css,js,img}. Todo lo demas queda denegado.
+<FilesMatch "(^\.|\.(env|sql|log|md|json|lock|ini|bak|sqlite|yml|yaml|xlsx|xls|csv)$)">
     Require all denied
 </FilesMatch>
 
-# Ningun .php de la raiz debe ejecutarse salvo el redirector.
-<FilesMatch "^(?!index\.php$).*\.php$">
-    Require all denied
-</FilesMatch>
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "no-referrer"
+    Header unset X-Powered-By
+    Header always unset Server
+</IfModule>
+
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_flag expose_php Off
+</IfModule>

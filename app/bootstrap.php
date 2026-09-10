@@ -41,21 +41,9 @@ use App\Services\UserService;
 $root = dirname(__DIR__);
 
 // --------------------------------------------------------------------
-// Autocarga PSR-4 minima (App\ -> app/). Sin dependencias externas.
+// Autocarga (patron de Porcify Manager: espacio de nombres -> ruta)
 // --------------------------------------------------------------------
-if (!defined('SCGCA_AUTOLOADER_REGISTERED')) {
-define('SCGCA_AUTOLOADER_REGISTERED', true);
-spl_autoload_register(static function (string $class) use ($root): void {
-    if (!str_starts_with($class, 'App\\')) {
-        return;
-    }
-    $relative = str_replace('\\', '/', substr($class, 4));
-    $file     = $root . '/app/' . $relative . '.php';
-    if (is_file($file)) {
-        require_once $file;
-    }
-});
-}
+require_once $root . '/autoload.php';
 
 require_once $root . '/app/Support/helpers.php';
 

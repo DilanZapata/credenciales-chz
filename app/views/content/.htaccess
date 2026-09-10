@@ -1,0 +1,2 @@
+# Plantillas: se incluyen desde PHP, nunca se sirven directamente.
+Require all denied

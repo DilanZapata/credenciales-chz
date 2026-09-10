@@ -25,9 +25,16 @@ if (!function_exists('url')) {
 }
 
 if (!function_exists('asset')) {
+    /**
+     * Ruta publica de un asset.
+     *
+     * Viven en app/views/{css,js,img}, como en Porcify Manager. La regla de
+     * reescritura no toca las rutas con extension, de modo que el servidor
+     * los entrega directamente.
+     */
     function asset(string $path): string
     {
-        return url('assets/' . ltrim($path, '/'));
+        return url('app/views/' . ltrim($path, '/'));
     }
 }
 

@@ -6,7 +6,7 @@ $root = dirname(__DIR__);
 return [
     'root'    => $root,
     'app'     => $root . '/app',
-    'views'   => $root . '/app/Views',
+    'views'   => $root . '/app/views',
     'storage' => $root . '/storage',
     'logs'    => $root . '/storage/logs',
     'tmp'     => $root . '/storage/tmp',

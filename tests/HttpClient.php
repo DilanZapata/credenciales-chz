@@ -49,7 +49,7 @@ final class HttpClient
         if (is_string($desdeEntorno) && $desdeEntorno !== '') {
             return $desdeEntorno;
         }
-        return 'http://localhost/credencial/public';
+        return 'http://localhost/credencial';
     }
 
     public function reset(): void
