@@ -43,6 +43,55 @@ final class Flash
         }
     }
 
+    /**
+     * Carga los mensajes directamente de $_COOKIE.
+     *
+     * Lo usa index.php, que ya no construye un objeto Request: en la
+     * arquitectura de Porcify la peticion son las superglobales.
+     */
+    public static function cargarDeCookie(): void
+    {
+        if (self::$loaded) {
+            return;
+        }
+        self::$loaded = true;
+        $raw = $_COOKIE[self::COOKIE] ?? '';
+        if (!is_string($raw) || $raw === '') {
+            return;
+        }
+        $parts = explode('.', $raw, 2);
+        if (count($parts) !== 2) {
+            return;
+        }
+        [$payload, $signature] = $parts;
+        if (!hash_equals(hash_hmac('sha256', $payload, self::key()), $signature)) {
+            return;
+        }
+        $decoded = json_decode((string) base64_decode($payload, true), true);
+        if (is_array($decoded)) {
+            self::$data = $decoded;
+        }
+    }
+
+    /**
+     * Retira la cookie una vez consumidos los mensajes.
+     *
+     * Sin esto el mismo aviso reaparece en cada recarga.
+     */
+    public static function expirarCookie(): void
+    {
+        if (self::$data === [] || headers_sent()) {
+            return;
+        }
+        $base = (string) Config::get('app.base_path', '');
+        setcookie(self::COOKIE, '', [
+            'expires'  => time() - 3600,
+            'path'     => ($base === '' ? '/' : $base . '/'),
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
+    }
+
     public static function set(string $key, mixed $value): void
     {
         self::$pending[$key] = $value;

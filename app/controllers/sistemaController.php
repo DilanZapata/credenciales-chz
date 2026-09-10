@@ -35,7 +35,7 @@ class sistemaController extends baseController
                 'sort'          => self::texto($peticion, 'sort'),
                 'direction'     => self::texto($peticion, 'direction'),
             ], static fn ($v) => $v !== null && $v !== '' && $v !== 0);
-            return sistemaModel::paginate($filtros, $pagina, $porPagina);
+            return sistemaModel::paginate($filtros, $pagina, $porPagina) + ['filters' => $filtros];
         }, 'Listado de sistemas');
     }
 

@@ -38,6 +38,77 @@ if (!function_exists('asset')) {
     }
 }
 
+if (!function_exists('respuestaVista')) {
+    /**
+     * Extrae los datos de la respuesta de un controlador para una vista.
+     *
+     * Los controladores devuelven el sobre {code,status,title,message,data}
+     * que consumen los endpoints JSON. Una vista solo quiere los datos, y
+     * un fallo debe interrumpirla: se convierte de nuevo en excepcion para
+     * que index.php dibuje la pagina de error con el codigo correcto.
+     *
+     * @param array<string,mixed> $respuesta
+     */
+    function respuestaVista(array $respuesta): mixed
+    {
+        if (($respuesta['status'] ?? '') === 'success') {
+            return $respuesta['data'];
+        }
+        throw new \App\Core\HttpException(
+            (int) ($respuesta['code'] ?? 500),
+            (string) ($respuesta['message'] ?? 'No fue posible completar la operacion.')
+        );
+    }
+}
+
+if (!function_exists('tiposDeRecurso')) {
+    /**
+     * Tipos de recurso admitidos para un sistema.
+     *
+     * @return array<int,string>
+     */
+    function tiposDeRecurso(): array
+    {
+        return ['web', 'application', 'software', 'computer', 'server', 'email', 'network',
+                'cloud', 'social', 'banking', 'license', 'database', 'other'];
+    }
+}
+
+if (!function_exists('redirigir')) {
+    /**
+     * Envia al navegador a otra direccion del sistema y termina.
+     *
+     * Solo admite rutas internas: una redireccion abierta serviria para
+     * llevar a un usuario autenticado a un sitio ajeno con aspecto propio.
+     */
+    function redirigir(string $ruta): never
+    {
+        $limpia = str_replace(["\r", "\n", "\0"], '', $ruta);
+        if (!str_starts_with($limpia, '/') || str_starts_with($limpia, '//')) {
+            $limpia = '/';
+        }
+        header('Location: ' . url($limpia), true, 302);
+        exit;
+    }
+}
+
+if (!function_exists('assetVersionado')) {
+    /**
+     * URL de un recurso propio con la marca de tiempo del archivo.
+     *
+     * Sin esto el navegador puede seguir usando una version antigua de un
+     * CSS o un JS despues de un despliegue. Al cambiar la URL en cada
+     * cambio del archivo, esta obligado a pedirlo de nuevo.
+     */
+    function assetVersionado(string $path): string
+    {
+        $relativa = ltrim($path, '/');
+        $archivo  = \App\Core\Config::get('paths.views') . '/' . $relativa;
+        $version  = is_file($archivo) ? (string) filemtime($archivo) : '1';
+        return asset($relativa) . '?v=' . $version;
+    }
+}
+
 if (!function_exists('active')) {
     /** Marca el elemento de navegacion correspondiente a la ruta actual. */
     function active(string $prefix, string $current, string $class = 'is-active'): string

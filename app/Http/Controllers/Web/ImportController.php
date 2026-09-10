@@ -15,18 +15,8 @@ final class ImportController extends Controller
 {
     private const MAX_BYTES = 2 * 1024 * 1024;
 
-    public function __construct(private ImportService $import, private AuthorizationService $gate)
-    {
-    }
-
-    public function index(Request $request): Response
-    {
-        $this->gate->require('import.credentials');
-        return $this->view('credentials/import', [
-            'pageTitle' => 'Importar credenciales',
-            'columns'   => $this->import->templateColumns(),
-            'preview'   => null,
-        ]);
+    public function __construct(private ImportService $import, private AuthorizationService $gate
+    ) {
     }
 
     public function template(Request $request): Response

@@ -1,0 +1,18 @@
+/* =====================================================================
+   Sistema Corporativo de Gestion de Credenciales - acceso
+   Pantallas publicas: ingreso, recuperacion y verificacion.
+   ===================================================================== */
+/* ------------------------------ Acceso ----------------------------- */
+.auth-wrap { min-height: 100vh; display: grid; grid-template-columns: 1.05fr .95fr; }
+@media (max-width: 900px) { .auth-wrap { grid-template-columns: 1fr; } .auth-aside { display: none; } }
+.auth-aside {
+  background: linear-gradient(155deg, #0f172a 0%, #16264a 55%, #1d4ed8 160%);
+  color: #dbe6ff; padding: 3rem 2.75rem; display: flex; flex-direction: column; justify-content: center;
+}
+.auth-aside h1 { color: #fff; font-size: 1.9rem; max-width: 22ch; }
+.auth-aside ul { list-style: none; padding: 0; margin: 1.75rem 0 0; }
+.auth-aside li { padding: .4rem 0 .4rem 1.5rem; position: relative; font-size: .9rem; color: #b8caf0; }
+.auth-aside li::before { content: "•"; position: absolute; left: .3rem; color: #6690ff; font-size: 1.1rem; line-height: 1; top: .5rem; }
+.auth-main { display: flex; align-items: center; justify-content: center; padding: 2rem 1.25rem; background: var(--bg); }
+.auth-card { width: 100%; max-width: 400px; }
+.auth-card .card__body { padding: 1.5rem; }

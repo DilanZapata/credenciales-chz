@@ -23,7 +23,7 @@ class usuarioController extends baseController
                 'company_id'    => self::entero($peticion, 'company_id'),
                 'department_id' => self::entero($peticion, 'department_id'),
             ], static fn ($v) => $v !== null && $v !== '' && $v !== 0);
-            return usuarioModel::list($filtros, $pagina, $porPagina);
+            return usuarioModel::list($filtros, $pagina, $porPagina) + ['filters' => $filtros];
         }, 'Listado de usuarios');
     }
 

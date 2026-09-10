@@ -26,16 +26,6 @@ final class AdminController extends Controller
     ) {
     }
 
-    // -------------------------- Categorias ---------------------------
-    public function categories(Request $request): Response
-    {
-        $this->gate->require('categories.manage');
-        return $this->view('admin/categories', [
-            'pageTitle'  => 'Categorias',
-            'categories' => $this->catalog->categories(false),
-        ]);
-    }
-
     public function saveCategory(Request $request): Response
     {
         $this->gate->require('categories.manage');
@@ -63,18 +53,6 @@ final class AdminController extends Controller
             ['accion' => $action], 'notice');
         $this->success('Categoria ' . $action . '.');
         return $this->redirect('/admin/categorias');
-    }
-
-    // ------------------------- Organizacion --------------------------
-    public function organization(Request $request): Response
-    {
-        $this->gate->require('org.manage');
-        return $this->view('admin/organization', [
-            'pageTitle'   => 'Empresas, sedes y departamentos',
-            'companies'   => $this->catalog->companies(false),
-            'locations'   => $this->catalog->locations(null, false),
-            'departments' => $this->catalog->departments(null, false),
-        ]);
     }
 
     public function saveCompany(Request $request): Response
@@ -143,25 +121,6 @@ final class AdminController extends Controller
         return $this->redirect('/admin/organizacion');
     }
 
-    // ---------------------------- Roles ------------------------------
-    public function roles(Request $request): Response
-    {
-        $this->gate->require('roles.view');
-        $roles       = $this->catalog->roles();
-        $permissions = $this->catalog->permissions();
-        $matrix      = [];
-        foreach ($roles as $role) {
-            $matrix[(int) $role['id']] = $this->catalog->rolePermissionCodes((int) $role['id']);
-        }
-        return $this->view('admin/roles', [
-            'pageTitle'   => 'Roles y permisos',
-            'roles'       => $roles,
-            'permissions' => $permissions,
-            'matrix'      => $matrix,
-            'canManage'   => $this->gate->can('roles.manage'),
-        ]);
-    }
-
     public function saveRole(Request $request): Response
     {
         $this->gate->require('roles.manage');
@@ -227,20 +186,6 @@ final class AdminController extends Controller
         ], 'critical');
         $this->success('Matriz de permisos actualizada.');
         return $this->redirect('/admin/roles');
-    }
-
-    // ------------------------- Configuracion --------------------------
-    public function settings(Request $request): Response
-    {
-        $this->gate->require('settings.manage');
-        $grouped = [];
-        foreach ($this->settings->grouped() as $row) {
-            $grouped[(string) $row['group_name']][] = $row;
-        }
-        return $this->view('admin/settings', [
-            'pageTitle' => 'Configuracion y politicas de seguridad',
-            'grouped'   => $grouped,
-        ]);
     }
 
     public function saveSettings(Request $request): Response

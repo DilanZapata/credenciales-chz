@@ -55,6 +55,44 @@ if (PHP_SAPI !== 'cli' && !headers_sent()) {
     // Las sesiones nativas de PHP no se usan: el sistema gestiona las suyas.
     ini_set('session.use_cookies', '0');
     header_remove('X-Powered-By');
+
+    // -------------------- Cabeceras de seguridad --------------------
+    //
+    // La CSP es estricta: sin 'unsafe-inline' para scripts (se usa un
+    // nonce por peticion), sin origenes externos y con form-action
+    // limitada al propio sitio. Asi un XSS no puede ejecutar codigo.
+    //
+    // Para hojas de estilo si se admite el atributo style en linea,
+    // necesario para valores dinamicos (barras de progreso, colores de
+    // categoria); inyectar CSS tiene un impacto muy inferior.
+    $nonceCsp = base64_encode(random_bytes(16));
+    View::share('cspNonce', $nonceCsp);
+
+    foreach ((array) Config::get('security.headers', []) as $nombre => $valor) {
+        header((string) $nombre . ': ' . (string) $valor);
+    }
+
+    header('Content-Security-Policy: ' . implode('; ', [
+        "default-src 'self'",
+        "script-src 'self' 'nonce-" . $nonceCsp . "'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]));
+
+    if (($_SERVER['HTTPS'] ?? '') !== '' && $_SERVER['HTTPS'] !== 'off') {
+        header('Strict-Transport-Security: ' . (string) Config::get('security.hsts'));
+    }
+
+    // Ninguna pagina del sistema debe quedar en cache del navegador:
+    // podria mostrar datos de otro usuario tras cerrar sesion.
+    header('Cache-Control: no-store, no-cache, must-revalidate, private');
+    header('Pragma: no-cache');
 }
 
 // -------------------------------------------------------------------------

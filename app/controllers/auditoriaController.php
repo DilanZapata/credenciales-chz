@@ -18,7 +18,8 @@ class auditoriaController extends baseController
         return self::responder(static function () use ($peticion): array {
             permisoModel::exigir('audit.view');
             [$pagina, $porPagina] = self::paginacion($peticion, 50);
-            return auditoriaConsultaModel::paginate(self::filtros($peticion), $pagina, $porPagina);
+            $filtros = self::filtros($peticion);
+            return auditoriaConsultaModel::paginate($filtros, $pagina, $porPagina) + ['filters' => $filtros];
         }, 'Auditoria');
     }
 

@@ -7,16 +7,8 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Validator;
 use App\Http\Controllers\Controller;
-use App\Repositories\AssignmentRepository;
-use App\Repositories\CatalogRepository;
-use App\Repositories\CredentialRepository;
-use App\Repositories\ExportRepository;
-use App\Repositories\SystemRepository;
-use App\Repositories\UserRepository;
-use App\Services\AuthContext;
 use App\Services\AuthorizationService;
 use App\Services\CredentialService;
-use App\Services\SettingsService;
 
 /** Gestion de credenciales desde la interfaz web. */
 final class CredentialController extends Controller
@@ -26,83 +18,8 @@ final class CredentialController extends Controller
 
     public function __construct(
         private CredentialService $credentials,
-        private CredentialRepository $repository,
-        private SystemRepository $systems,
-        private CatalogRepository $catalog,
-        private UserRepository $users,
-        private AssignmentRepository $assignments,
-        private ExportRepository $exports,
-        private AuthorizationService $gate,
-        private AuthContext $context,
-        private SettingsService $settings
+        private AuthorizationService $gate
     ) {
-    }
-
-    public function index(Request $request): Response
-    {
-        [$page, $perPage] = $this->pagination($request);
-        $filters = $this->filtersFrom($request);
-        $result  = $this->credentials->list($filters, $page, $perPage);
-
-        return $this->view('credentials/index', [
-            'pageTitle'   => 'Credenciales',
-            'result'      => $result,
-            'filters'     => $filters,
-            'categories'  => $this->catalog->categories(),
-            'systems'     => $this->systems->selectList(),
-            'companies'   => $this->catalog->companies(),
-            'locations'   => $this->catalog->locations(),
-            'departments' => $this->catalog->departments(),
-            'usersList'   => $this->gate->can('users.view') ? $this->users->activeSelectList() : [],
-        ]);
-    }
-
-    public function show(Request $request, array $params): Response
-    {
-        $id         = (int) $params['id'];
-        $credential = $this->credentials->show($id);
-
-        $canManage = $this->gate->can('credentials.assign') || $this->gate->can('credentials.view_all');
-
-        return $this->view('credentials/show', [
-            'pageTitle'    => $credential['name'],
-            'credential'   => $credential,
-            'assignments'  => $canManage ? $this->assignments->forCredential($id) : [],
-            'usersList'    => $this->gate->can('credentials.assign') ? $this->users->activeSelectList() : [],
-            'history'      => $this->gate->can('history.view') ? $this->repository->history(['credential_id' => $id], 15) : [],
-            'secretMeta'   => $this->gate->can('history.view') ? $this->repository->secretHistoryMeta($id) : [],
-            'exportTrace'  => $this->gate->can('audit.view') ? $this->exports->exportsContaining($id, 10) : [],
-            'accessTrace'  => $this->gate->can('audit.view') ? $this->repository->secretAccessHistory($id, 15) : [],
-        ]);
-    }
-
-    public function history(Request $request, array $params): Response
-    {
-        $id   = (int) $params['id'];
-        $data = $this->credentials->history($id);
-        $meta = $this->credentials->show($id, false);
-
-        return $this->view('credentials/history', [
-            'pageTitle'  => 'Historial - ' . $meta['name'],
-            'credential' => $meta,
-            'versions'   => $data['secret_versions'],
-            'changes'    => $data['changes'],
-            'access'     => $data['secret_access'],
-        ]);
-    }
-
-    public function create(Request $request): Response
-    {
-        $this->gate->require('credentials.create');
-        return $this->view('credentials/form', [
-            'pageTitle'   => 'Nueva credencial',
-            'credential'  => null,
-            'systems'     => $this->systems->selectList(),
-            'usersList'   => $this->users->activeSelectList(),
-            'statuses'    => self::STATUSES,
-            'environments'=> self::ENVIRONMENTS,
-            'defaultRotation' => $this->settings->int('credentials.default_rotation_days', 90),
-        ]);
     }
 
     public function store(Request $request): Response
@@ -113,25 +30,6 @@ final class CredentialController extends Controller
 
         $this->success('Credencial registrada correctamente.');
         return $this->redirect('/credenciales/' . $id);
-    }
-
-    public function edit(Request $request, array $params): Response
-    {
-        $this->gate->require('credentials.update');
-        $id  = (int) $params['id'];
-        $row = $this->repository->find($id, null, true);
-        if ($row === null) {
-            return $this->redirect('/credenciales');
-        }
-        return $this->view('credentials/form', [
-            'pageTitle'   => 'Editar credencial',
-            'credential'  => $row,
-            'systems'     => $this->systems->selectList(),
-            'usersList'   => $this->users->activeSelectList(),
-            'statuses'    => self::STATUSES,
-            'environments'=> self::ENVIRONMENTS,
-            'defaultRotation' => $this->settings->int('credentials.default_rotation_days', 90),
-        ]);
     }
 
     public function update(Request $request, array $params): Response

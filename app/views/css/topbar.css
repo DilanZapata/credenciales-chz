@@ -1,0 +1,22 @@
+/* =====================================================================
+   Sistema Corporativo de Gestion de Credenciales - barra superior
+   Barra superior con la busqueda global y sus resultados.
+   ===================================================================== */
+.topbar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: .6rem 1.25rem; display: flex; align-items: center; gap: 1rem;
+  position: sticky; top: 0; z-index: 40;
+}
+.topbar__search { flex: 1; max-width: 460px; position: relative; }
+.topbar__search input { width: 100%; }
+.topbar__actions { margin-left: auto; display: flex; align-items: center; gap: .55rem; }
+
+
+.search-results {
+  position: absolute; top: calc(100% + 5px); left: 0; right: 0; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  max-height: 340px; overflow: auto; z-index: 60;
+}
+.search-results a { display: block; padding: .5rem .7rem; border-bottom: 1px solid var(--border); color: var(--text); }
+.search-results a:hover { background: var(--surface-2); text-decoration: none; }
+.search-results small { color: var(--text-3); display: block; }

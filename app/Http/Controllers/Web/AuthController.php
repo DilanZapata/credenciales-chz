@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web;
 
 use App\Core\Config;
-use App\Core\HttpException;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Csrf;
@@ -14,7 +13,6 @@ use App\Services\AuthContext;
 use App\Services\AuthService;
 use App\Services\MailService;
 use App\Services\SessionService;
-use App\Services\SettingsService;
 
 /** Acceso al sistema: ingreso, MFA, cierre de sesion y recuperacion. */
 final class AuthController extends Controller
@@ -23,25 +21,8 @@ final class AuthController extends Controller
         private AuthService $auth,
         private SessionService $sessions,
         private AuthContext $context,
-        private SettingsService $settings,
         private MailService $mail
     ) {
-    }
-
-    public function showLogin(Request $request): Response
-    {
-        // Se emite una sesion "invitada" solo para poder validar el token CSRF
-        // del formulario sin exponer un token global.
-        $csrf = $this->guestCsrf($request);
-
-        $response = $this->view('auth/login', [
-            'csrf'     => $csrf['token'],
-            'redirect' => $this->safeRedirect($request->string('redirect')),
-        ], 'layouts/auth');
-
-        return $csrf['cookie'] !== null
-            ? $response->withCookie(Csrf::COOKIE, $csrf['cookie'], time() + 7200)
-            : $response;
     }
 
     public function login(Request $request): Response
@@ -83,15 +64,6 @@ final class AuthController extends Controller
             ->withCookie(SessionService::COOKIE, (string) $result['token'], 0);
     }
 
-    public function showMfa(Request $request): Response
-    {
-        $session = $this->currentRawSession($request);
-        if ($session === null) {
-            return $this->redirect('/entrar');
-        }
-        return $this->view('auth/mfa', ['csrf' => $session['csrf_token']], 'layouts/auth');
-    }
-
     public function verifyMfa(Request $request): Response
     {
         $session = $this->currentRawSession($request);
@@ -118,19 +90,6 @@ final class AuthController extends Controller
         return $this->redirect('/entrar')->withCookie(SessionService::COOKIE, '', time() - 3600);
     }
 
-    // ---------------------------------------------------------------
-    //  Recuperacion de cuenta
-    // ---------------------------------------------------------------
-
-    public function showForgot(Request $request): Response
-    {
-        $csrf     = $this->guestCsrf($request);
-        $response = $this->view('auth/forgot', ['csrf' => $csrf['token']], 'layouts/auth');
-        return $csrf['cookie'] !== null
-            ? $response->withCookie(Csrf::COOKIE, $csrf['cookie'], time() + 7200)
-            : $response;
-    }
-
     public function sendReset(Request $request): Response
     {
         $identifier = $request->string('identifier');
@@ -153,18 +112,6 @@ final class AuthController extends Controller
         // Respuesta identica exista o no la cuenta: no se filtra informacion.
         $this->success('Si el identificador corresponde a una cuenta activa, recibira un correo con las instrucciones.');
         return $this->redirect('/entrar');
-    }
-
-    public function showReset(Request $request, array $params): Response
-    {
-        $csrf     = $this->guestCsrf($request);
-        $response = $this->view('auth/reset', [
-            'csrf'  => $csrf['token'],
-            'token' => (string) ($params['token'] ?? ''),
-        ], 'layouts/auth');
-        return $csrf['cookie'] !== null
-            ? $response->withCookie(Csrf::COOKIE, $csrf['cookie'], time() + 7200)
-            : $response;
     }
 
     public function doReset(Request $request): Response

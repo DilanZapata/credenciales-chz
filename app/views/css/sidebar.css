@@ -1,0 +1,42 @@
+/* =====================================================================
+   Sistema Corporativo de Gestion de Credenciales - menu lateral
+   Armazon de la aplicacion y menu lateral, incluido su comportamiento
+   en pantallas pequenas (cajon deslizante).
+   ===================================================================== */
+/* ------------------------------ Estructura ------------------------- */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 244px; flex: 0 0 244px; background: var(--sidebar); color: var(--sidebar-text);
+  display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.sidebar__brand { padding: 1.1rem 1.1rem .9rem; border-bottom: 1px solid rgba(255,255,255,.08); }
+.sidebar__brand strong { display: block; color: #fff; font-size: .95rem; letter-spacing: -.01em; }
+.sidebar__brand span { font-size: .72rem; color: #7f8ea8; text-transform: uppercase; letter-spacing: .09em; }
+.sidebar__nav { padding: .75rem .6rem; flex: 1; }
+.sidebar__group { margin-bottom: 1rem; }
+.sidebar__label {
+  font-size: .66rem; text-transform: uppercase; letter-spacing: .1em;
+  color: #64748b; padding: .35rem .55rem; font-weight: 700;
+}
+.sidebar a.nav-item {
+  display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border-radius: var(--radius-sm);
+  color: var(--sidebar-text); font-size: .855rem; margin-bottom: 1px; text-decoration: none;
+}
+.sidebar a.nav-item:hover { background: var(--sidebar-2); color: #fff; }
+.sidebar a.nav-item.is-active { background: var(--brand); color: #fff; font-weight: 600; }
+.sidebar a.nav-item .ico { width: 16px; text-align: center; opacity: .85; flex: 0 0 16px; }
+.sidebar__footer { padding: .8rem; border-top: 1px solid rgba(255,255,255,.08); font-size: .74rem; color: #64748b; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+
+.menu-toggle { display: none; }
+@media (max-width: 900px) {
+  .app { flex-direction: column; }
+  .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 90; transform: translateX(-100%); transition: transform .18s ease; box-shadow: var(--shadow-lg); }
+  .sidebar.is-open { transform: translateX(0); }
+  .menu-toggle { display: inline-flex; }
+  .content { padding: 1rem .8rem; }
+  .topbar { padding: .55rem .8rem; }
+}

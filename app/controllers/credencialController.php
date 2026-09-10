@@ -27,7 +27,10 @@ class credencialController extends baseController
         return self::responder(static function () use ($peticion): array {
             $pagina   = max(1, (int) ($peticion['page'] ?? 1));
             $porPagina = max(5, min(100, (int) ($peticion['per_page'] ?? 25)));
-            return credencialModel::list(self::filtros($peticion), $pagina, $porPagina);
+            $filtros   = self::filtros($peticion);
+            // Los filtros aplicados viajan en la respuesta: la vista repuebla
+            // con ellos su formulario y el cliente sabe que se aplico.
+            return credencialModel::list($filtros, $pagina, $porPagina) + ['filters' => $filtros];
         }, 'Listado de credenciales');
     }
 

@@ -1159,6 +1159,126 @@ $t->assert($r['status'] === 200 && !str_contains((string) $r['body'], 'S3cret0-C
     'El endpoint de credenciales no devuelve la contrasena en claro');
 
 // =====================================================================
+//  15. Ensamblado de vistas (index.php + app/views/content)
+// =====================================================================
+//
+//  Recorre TODAS las direcciones registradas en viewsModel con un
+//  administrador y comprueba que cada pagina se dibuja entera: con su
+//  marco, su titulo y sus hojas, y sin que se escape ningun aviso de PHP
+//  ni la pagina de error.
+// =====================================================================
+$t->group('15. Ensamblado de vistas');
+
+$clearLimits();
+$vistas = new HttpClient('198.51.100.30');
+$vistas->login('admin.test', PASS_ADMIN);
+
+/** Comprueba que la respuesta es una pagina completa y sana. */
+$paginaSana = static function (array $r) use ($root): array {
+    $body = (string) $r['body'];
+    $problemas = [];
+    if ($r['status'] !== 200)                          { $problemas[] = 'HTTP ' . $r['status']; }
+    if (!str_contains($body, '<!DOCTYPE html>'))       { $problemas[] = 'sin doctype'; }
+    if (!str_contains($body, 'global.css'))            { $problemas[] = 'sin hoja compartida'; }
+    if (!str_contains($body, 'global.js'))             { $problemas[] = 'sin guion compartido'; }
+    foreach (['Warning</b>', 'Notice</b>', 'Fatal error', 'Undefined variable',
+              'Undefined array key', 'Uncaught', $root] as $rastro) {
+        if (str_contains($body, $rastro)) { $problemas[] = 'fuga: ' . $rastro; }
+    }
+    return $problemas;
+};
+
+$rutasVista = [
+    '/'                                        => 'Panel de control',
+    '/mis-accesos'                             => 'Mis accesos',
+    '/credenciales'                            => 'Credenciales',
+    '/credenciales/nueva'                      => 'Nueva credencial',
+    '/credenciales/' . $credA['id']            => 'Ficha de la credencial',
+    '/credenciales/' . $credA['id'] . '/editar'=> 'Edicion de la credencial',
+    '/credenciales/' . $credA['id'] . '/historial' => 'Historial de la credencial',
+    '/importar'                                => 'Importar credenciales',
+    '/sistemas'                                => 'Sistemas',
+    '/sistemas/nuevo'                          => 'Nuevo sistema',
+    '/sistemas/' . $systemId                   => 'Ficha del sistema',
+    '/sistemas/' . $systemId . '/editar'       => 'Edicion del sistema',
+    '/usuarios'                                => 'Usuarios',
+    '/usuarios/nuevo'                          => 'Nuevo usuario',
+    '/usuarios/' . $auditorId                  => 'Ficha del usuario',
+    '/usuarios/' . $auditorId . '/editar'      => 'Edicion del usuario',
+    '/perfil'                                  => 'Mi perfil',
+    '/perfil/contrasena'                       => 'Cambio de contrasena',
+    '/perfil/mfa'                              => 'Verificacion en dos pasos',
+    '/notificaciones'                          => 'Notificaciones',
+    '/auditoria'                               => 'Auditoria',
+    '/seguridad/eventos'                       => 'Eventos de seguridad',
+    '/sesiones'                                => 'Sesiones',
+    '/reportes'                                => 'Reportes',
+    '/reportes/historial'                      => 'Historial de exportaciones',
+    '/admin/categorias'                        => 'Categorias',
+    '/admin/organizacion'                      => 'Organizacion',
+];
+foreach ($rutasVista as $ruta => $descripcion) {
+    $r = $vistas->get($ruta);
+    $problemas = $paginaSana($r);
+    $t->assert($problemas === [], $descripcion . ' se dibuja completa (' . $ruta . ')',
+        implode(', ', $problemas));
+}
+
+// El menu lateral solo ofrece lo que el usuario puede usar.
+$r = $vistas->get('/credenciales');
+$t->assert(str_contains((string) $r['body'], 'sidebar__nav') && str_contains((string) $r['body'], 'Mis accesos'),
+    'La pagina lleva el menu lateral con las opciones del usuario');
+
+// Cada vista carga solo sus propias hojas y guiones.
+$r = $vistas->get('/credenciales/' . $credA['id']);
+$t->assert(str_contains((string) $r['body'], 'secretos.css') && str_contains((string) $r['body'], 'secretos.js'),
+    'La ficha de una credencial carga los recursos de secretos');
+$r = $vistas->get('/usuarios');
+$t->assert(!str_contains((string) $r['body'], 'secretos.js'),
+    'El listado de usuarios NO carga el guion de secretos');
+
+// Las paginas publicas se dibujan sin menu y con su propia hoja.
+$anon = new HttpClient('198.51.100.31');
+foreach (['/entrar' => 'Acceso', '/recuperar' => 'Recuperacion'] as $ruta => $descripcion) {
+    $r = $anon->get($ruta);
+    $t->assert($r['status'] === 200 && str_contains((string) $r['body'], 'login.css')
+        && !str_contains((string) $r['body'], 'sidebar__nav'),
+        $descripcion . ' se dibuja sin menu lateral', 'HTTP ' . $r['status']);
+}
+
+// Una direccion inexistente devuelve 404 con la pagina de error, no un 500
+// ni una traza con rutas del servidor.
+$r = $vistas->get('/no-existe-esta-pagina');
+$t->assert($r['status'] === 404 && !str_contains((string) $r['body'], $root),
+    'Una direccion desconocida responde 404 sin filtrar rutas del servidor',
+    'HTTP ' . $r['status']);
+
+// Un recurso inexistente dentro de una seccion valida responde 404.
+$r = $vistas->get('/credenciales/999999');
+$t->assert($r['status'] === 404, 'Una credencial inexistente responde 404 en la vista',
+    'HTTP ' . $r['status']);
+
+// El consultor no alcanza las vistas administrativas ni por URL directa.
+$clearLimits();
+$vistaConsultor = new HttpClient('198.51.100.32');
+$vistaConsultor->login('ana.test', PASS_OTRO);
+foreach (['/usuarios', '/auditoria', '/sesiones', '/admin/roles', '/admin/configuracion'] as $ruta) {
+    $r = $vistaConsultor->get($ruta);
+    $t->assert(in_array($r['status'], [403, 302], true),
+        'El consultor no alcanza ' . $ruta, 'HTTP ' . $r['status']);
+}
+
+// El panel administrativo redirige al consultor a sus propios accesos.
+$r = $vistaConsultor->get('/');
+$t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/mis-accesos'),
+    'El consultor entra directamente a "Mis accesos"', 'HTTP ' . $r['status']);
+
+// Sin sesion, cualquier vista privada lleva al formulario de acceso.
+$r = $anon->get('/credenciales');
+$t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/entrar'),
+    'Sin sesion, una vista privada redirige al acceso', 'HTTP ' . $r['status']);
+
+// =====================================================================
 //  Resumen
 // =====================================================================
 exit($t->summary());

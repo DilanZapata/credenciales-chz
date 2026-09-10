@@ -6,11 +6,7 @@ namespace App\Http\Controllers\Web;
 use App\Core\Request;
 use App\Core\Response;
 use App\Http\Controllers\Controller;
-use App\Repositories\CatalogRepository;
 use App\Repositories\CredentialRepository;
-use App\Repositories\ExportRepository;
-use App\Repositories\SystemRepository;
-use App\Repositories\UserRepository;
 use App\Services\AuthorizationService;
 use App\Services\ExportService;
 
@@ -19,30 +15,9 @@ final class ReportController extends Controller
 {
     public function __construct(
         private ExportService $exports,
-        private ExportRepository $exportRepo,
         private CredentialRepository $credentials,
-        private SystemRepository $systems,
-        private CatalogRepository $catalog,
-        private UserRepository $users,
         private AuthorizationService $gate
     ) {
-    }
-
-    public function index(Request $request): Response
-    {
-        $this->gate->require('reports.view');
-        return $this->view('reports/index', [
-            'pageTitle'    => 'Reportes',
-            'categories'   => $this->catalog->categories(),
-            'systems'      => $this->systems->selectList(),
-            'companies'    => $this->catalog->companies(),
-            'locations'    => $this->catalog->locations(),
-            'departments'  => $this->catalog->departments(),
-            'usersList'    => $this->users->activeSelectList(),
-            'canExportSecrets' => $this->gate->can('export.credentials.secrets'),
-            'canExportHistory' => $this->gate->can('export.history'),
-            'canExportAudit'   => $this->gate->can('audit.export'),
-        ]);
     }
 
     /** Seleccion manual de credenciales para exportar (art. 35). */
@@ -131,31 +106,4 @@ final class ReportController extends Controller
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             true // el archivo se elimina del servidor inmediatamente tras enviarlo
         );
-    }
-
-    /** Bitacora de exportaciones (art. 38). */
-    public function history(Request $request): Response
-    {
-        $this->gate->requireAny(['audit.view', 'reports.view']);
-        [$page, $perPage] = $this->pagination($request, 30);
-        $filters = array_filter([
-            'user_id'          => $request->int('user_id'),
-            'report_type'      => $request->string('report_type'),
-            'included_secrets' => $request->string('included_secrets'),
-            'date_from'        => $request->string('date_from'),
-            'date_to'          => $request->string('date_to'),
-        ], static fn ($v) => $v !== null && $v !== '');
-
-        $result = $this->exportRepo->paginate($filters, $page, $perPage);
-
-        return $this->view('reports/history', [
-            'pageTitle' => 'Historial de exportaciones',
-            'result'    => $result,
-            'page'      => $page,
-            'perPage'   => $perPage,
-            'pages'     => (int) ceil($result['total'] / $perPage),
-            'filters'   => $filters,
-            'usersList' => $this->users->activeSelectList(),
-        ]);
-    }
-}
+    }}

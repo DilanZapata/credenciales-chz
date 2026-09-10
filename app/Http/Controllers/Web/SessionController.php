@@ -23,22 +23,6 @@ final class SessionController extends Controller
     ) {
     }
 
-    public function index(Request $request): Response
-    {
-        $this->gate->require('sessions.view');
-        $filters = [
-            'status'  => $request->string('status') ?: 'active',
-            'user_id' => $request->int('user_id'),
-            'search'  => $request->string('q'),
-        ];
-        return $this->view('sessions/index', [
-            'pageTitle'   => 'Sesiones',
-            'sessions'    => $this->sessions->listSessions($filters, 200),
-            'filters'     => $filters,
-            'currentId'   => $this->context->sessionId(),
-        ]);
-    }
-
     public function revoke(Request $request, array $params): Response
     {
         $this->gate->require('sessions.revoke');
