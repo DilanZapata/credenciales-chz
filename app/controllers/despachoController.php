@@ -11,6 +11,7 @@ use App\Core\HttpException;
 use App\Core\Logger;
 use App\Core\ReauthRequiredException;
 use App\Core\ValidationException;
+use app\middlewares\accesoMiddleware;
 use app\models\auditoriaModel;
 use app\models\autenticacionModel;
 use app\models\contextoModel;
@@ -290,7 +291,9 @@ class despachoController extends baseController
                     'Configuracion actualizada.', '/admin/configuracion');
 
             default:
-                self::salir('/', 404);
+                // Direccion valida para leer pero no para escribir (o
+                // inexistente): no se dice cual de las dos.
+                self::paginaError(404, 'No encontrado', 'La direccion solicitada no existe.');
         }
     }
 
@@ -588,7 +591,7 @@ class despachoController extends baseController
             return;
         }
 
-        $esperado = self::tokenEsperado();
+        $esperado = accesoMiddleware::tokenCsrfEsperado();
         $recibido = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['_csrf'] ?? '');
 
         if ($esperado === null || !is_string($recibido) || $recibido === ''
@@ -605,25 +608,6 @@ class despachoController extends baseController
         }
     }
 
-    private static function tokenEsperado(): ?string
-    {
-        // 1. Sesion autenticada: token de la fila de sesion.
-        $token = contextoModel::tokenCsrf();
-        if ($token !== null) {
-            return $token;
-        }
-        // 2. Sesion existente pero aun pendiente de MFA.
-        $cookie = $_COOKIE[sesionModel::COOKIE] ?? null;
-        if (is_string($cookie) && $cookie !== '') {
-            $sesion = sesionModel::resolver($cookie);
-            if ($sesion !== null) {
-                return (string) $sesion['csrf_token'];
-            }
-        }
-        // 3. Formularios publicos: double submit cookie.
-        $invitado = $_COOKIE[Csrf::COOKIE] ?? null;
-        return is_string($invitado) && Csrf::isValidFormat($invitado) ? $invitado : null;
-    }
 
     private static function origenConfiable(): bool
     {

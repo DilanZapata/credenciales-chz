@@ -10,7 +10,7 @@ declare(strict_types=1);
  * hay sesion. Con una sola implementacion no puede divergir.
  */
 
-use App\Core\Csrf;
+use app\middlewares\accesoMiddleware;
 use app\models\auditoriaModel;
 use app\models\contextoModel;
 use app\models\sesionModel;
@@ -56,10 +56,13 @@ function exigirSesion(): void
  * La referencia no tiene esta proteccion. Aqui se conserva porque los
  * endpoints tambien se invocan desde la interfaz con cookie de sesion, y
  * sin token un sitio externo podria disparar acciones en nombre del usuario.
+ *
+ * Se aplica tambien al ingreso: sin ella, un sitio externo puede autenticar
+ * a la victima en una cuenta ajena y observar lo que haga a partir de ahi.
  */
 function exigirCsrf(): void
 {
-    $esperado = contextoModel::tokenCsrf();
+    $esperado = accesoMiddleware::tokenCsrfEsperado();
     $recibido = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['_csrf'] ?? (cuerpoPeticion()['_csrf'] ?? ''));
 
     if ($esperado !== null && is_string($recibido) && $recibido !== '' && hash_equals($esperado, $recibido)) {

@@ -82,6 +82,36 @@ class accesoMiddleware
     }
 
     /**
+     * Token anti-CSRF que debe traer una escritura.
+     *
+     * Una sola implementacion para los dos frentes (endpoints JSON y envio
+     * de formulario): si divergieran, uno de los dos acabaria aceptando lo
+     * que el otro rechaza.
+     *
+     * Tres origenes, en orden: la sesion autenticada, la sesion pendiente
+     * de segundo factor y, para los formularios publicos, la cookie de
+     * doble envio.
+     */
+    public static function tokenCsrfEsperado(): ?string
+    {
+        $token = contextoModel::tokenCsrf();
+        if ($token !== null) {
+            return $token;
+        }
+
+        $cookie = $_COOKIE[sesionModel::COOKIE] ?? null;
+        if (is_string($cookie) && $cookie !== '') {
+            $sesion = sesionModel::resolver($cookie);
+            if ($sesion !== null) {
+                return (string) $sesion['csrf_token'];
+            }
+        }
+
+        $invitado = $_COOKIE[Csrf::COOKIE] ?? null;
+        return is_string($invitado) && Csrf::isValidFormat($invitado) ? $invitado : null;
+    }
+
+    /**
      * Token anti-CSRF para los formularios publicos (acceso, recuperacion).
      *
      * Si ya hay sesion se usa su token. Si no, se emite uno de doble envio

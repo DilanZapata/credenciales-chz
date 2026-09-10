@@ -443,8 +443,17 @@ No todo lo que había sobraba. Se mantuvo, y el motivo:
 ### Estado final
 
 ```
-294/294 asertos en verde
+321/321 asertos en verde
 ```
 
-15 grupos de prueba, de la autenticación al ensamblado de vistas, todos
-por HTTP real contra la aplicación servida por Apache.
+16 grupos de prueba, de la autenticación a la superficie expuesta por la
+arquitectura nueva, todos por HTTP real contra la aplicación servida por
+Apache.
+
+Durante la revisión final apareció además un hueco que la migración había
+abierto: `login-api.php?accion=ingresar` no exigía token anti-CSRF, con lo
+que un sitio externo podía autenticar a la víctima en una cuenta ajena y
+observar lo que hiciera después. La resolución del token esperado —sesión,
+sesión pendiente de MFA o cookie de doble envío— vive ahora en un único
+sitio (`accesoMiddleware::tokenCsrfEsperado()`) que usan los dos frentes,
+para que no puedan volver a divergir.

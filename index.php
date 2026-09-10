@@ -35,10 +35,9 @@ use app\models\contextoModel;
 // ---------------------------------------------------------------------
 //  Direccion solicitada
 // ---------------------------------------------------------------------
-$url = isset($_GET['views']) && $_GET['views'] !== ''
-    ? explode('/', trim((string) $_GET['views'], '/'))
-    : [''];
-
+// El .htaccess deja la ruta en $_GET['views'], pero la fuente de verdad es
+// REQUEST_URI, que ya normalizo session_start.php: asi la resolucion es la
+// misma se llegue por la reescritura o directamente.
 $rutaSolicitada = contextoModel::ruta();
 $metodo         = contextoModel::metodo();
 

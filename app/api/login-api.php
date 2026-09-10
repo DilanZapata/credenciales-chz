@@ -44,6 +44,7 @@ if ($metodo === 'GET' && $accion === 'estado') {
 if ($metodo === 'POST') {
     switch ($accion) {
         case 'ingresar':
+            exigirCsrf();
             $r = loginController::ingresarController($cuerpo);
             $datos = $r['data'] ?? [];
             if (($datos['status'] ?? '') !== 'error' && isset($datos['token'])) {
@@ -55,6 +56,7 @@ if ($metodo === 'POST') {
             responder($r);
 
         case 'mfa':
+            exigirCsrf();
             $token  = $_COOKIE[sesionModel::COOKIE] ?? '';
             $sesion = $token !== '' ? sesionModel::resolver($token) : null;
             if ($sesion === null) {

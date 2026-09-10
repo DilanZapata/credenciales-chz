@@ -1157,6 +1157,27 @@ $r = $api->get('/app/api/importacion-api.php?accion=plantilla');
 $t->assert($r['status'] === 200 && str_contains($r['headers']['Content-Type'] ?? '', 'text/csv'),
     'importacion-api.php entrega la plantilla como CSV', 'HTTP ' . $r['status']);
 
+// El ingreso por endpoint tambien exige token: sin el, un sitio externo
+// podria autenticar a la victima en una cuenta ajena y observarla despues.
+$sinToken = new HttpClient('198.51.100.24');
+$r = $sinToken->postJson('/app/api/login-api.php?accion=ingresar',
+    ['identifier' => 'admin.test', 'password' => PASS_ADMIN], false);
+$t->assert($r['status'] === 403 && ($sobre($r)['csrf'] ?? false) === true,
+    'El ingreso por endpoint sin token anti-CSRF se rechaza', 'HTTP ' . $r['status']);
+$t->assert($sinToken->cookie('scgca_session') === null,
+    'Un ingreso rechazado no deja cookie de sesion');
+
+// Con el token de doble envio (el que emite el formulario) si se admite.
+$clearLimits();
+$conToken = new HttpClient('198.51.100.25');
+$conToken->get('/entrar');
+$r = $conToken->postJson('/app/api/login-api.php?accion=ingresar',
+    ['identifier' => 'admin.test', 'password' => PASS_ADMIN]);
+$t->assert($r['status'] === 200 && $conToken->cookie('scgca_session') !== null,
+    'Con token valido el ingreso por endpoint funciona', 'HTTP ' . $r['status']);
+$t->assert(!str_contains((string) $r['body'], 'token'),
+    'La respuesta del ingreso no devuelve el token de sesion en el cuerpo');
+
 // El endpoint de credenciales nunca devuelve el secreto.
 $r = $api->getJson('/app/api/credenciales-api.php?accion=ver&id=' . $credA['id']);
 $t->assert($r['status'] === 200 && !str_contains((string) $r['body'], 'S3cret0-Contab!2026'),
@@ -1281,6 +1302,99 @@ $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '',
 $r = $anon->get('/credenciales');
 $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/entrar'),
     'Sin sesion, una vista privada redirige al acceso', 'HTTP ' . $r['status']);
+
+// =====================================================================
+//  16. Superficie de la arquitectura nueva
+// =====================================================================
+//
+//  Comprueba lo que la migracion podria haber aflojado sin que ninguna
+//  prueba funcional se entere: que el arbol interno siga sin servirse,
+//  que el despacho de formularios no acepte mas de lo que debe y que los
+//  errores sigan sin filtrar nada.
+// =====================================================================
+$t->group('16. Superficie de la arquitectura nueva');
+
+$clearLimits();
+$sup = new HttpClient('198.51.100.40');
+$sup->login('admin.test', PASS_ADMIN);
+
+// El arbol interno no se descarga por HTTP. Un fallo aqui entrega el
+// codigo fuente completo, con la logica de cifrado incluida.
+foreach ([
+    '/app/models/credencialModel.php'      => 'un modelo',
+    '/app/controllers/despachoController.php' => 'un controlador',
+    '/app/middlewares/accesoMiddleware.php' => 'el portero',
+    '/app/views/content/panel-view.php'    => 'una vista',
+    '/app/views/inc/session_start.php'     => 'el arranque compartido',
+    '/app/views/partials/flash.php'        => 'un fragmento',
+    '/app/api/_comun.php'                  => 'las utilidades de los endpoints',
+    '/app/descargas.php'                   => 'la entrega de archivos',
+    '/autoload.php'                        => 'el autocargador',
+    '/config/database.php'                 => 'la configuracion',
+    '/bin/console.php'                     => 'la consola',
+    '/database/demo.php'                   => 'los datos de ejemplo',
+] as $ruta => $descripcion) {
+    $r = $sup->get($ruta);
+    $t->assert($r['status'] === 403, 'No se puede descargar ' . $descripcion . ' (' . $ruta . ')',
+        'HTTP ' . $r['status']);
+}
+
+// Los recursos si se sirven: sin ellos la interfaz no se dibuja.
+foreach (['/app/views/css/global.css', '/app/views/js/global.js'] as $ruta) {
+    $r = $sup->get($ruta);
+    $t->assert($r['status'] === 200, 'El recurso ' . $ruta . ' si se sirve', 'HTTP ' . $r['status']);
+}
+
+// Una direccion que existe para leer no acepta escrituras.
+$r = $sup->post('/credenciales/' . $credA['id'] . '/historial', ['x' => '1']);
+$t->assert($r['status'] === 404, 'Una direccion de solo lectura rechaza el POST', 'HTTP ' . $r['status']);
+
+// El formulario solo habla POST: los verbos REST viven en los endpoints.
+$r = $sup->request('DELETE', '/credenciales/' . $credA['id'], []);
+$t->assert($r['status'] === 405, 'El despacho de formularios rechaza DELETE', 'HTTP ' . $r['status']);
+
+// El fallo de CSRF lleva su marcador para que el cliente pueda recargar.
+$r = $sup->request('POST', '/admin/categorias', ['name' => 'Sin token'], false, false);
+$t->assert($r['status'] === 403 && ($r['headers']['X-Csrf-Failure'] ?? '') === '1',
+    'El rechazo por CSRF viaja como 403 con la cabecera X-Csrf-Failure',
+    'HTTP ' . $r['status']);
+$t->assert(!str_contains((string) $r['body'], $root),
+    'La pagina de error del formulario no filtra la ruta del servidor');
+
+// La redireccion tras el ingreso no puede salir del sitio.
+$clearLimits();
+$abierto = new HttpClient('198.51.100.41');
+$abierto->get('/entrar');
+$r = $abierto->post('/entrar', [
+    'identifier' => 'admin.test', 'password' => PASS_ADMIN,
+    'redirect'   => '//evil.example.com/robo',
+]);
+$destino = $r['headers']['Location'] ?? '';
+$t->assert($r['status'] === 302 && !str_contains($destino, 'evil.example.com'),
+    'El parametro redirect no permite salir del sitio', $destino);
+
+// Las cabeceras de seguridad acompanan tambien a las paginas nuevas.
+$r = $sup->get('/credenciales');
+$csp = $r['headers']['Content-Security-Policy'] ?? '';
+// Se mira SOLO la directiva de scripts: en estilos si se admite el atributo
+// en linea, necesario para valores dinamicos, y con un impacto muy inferior.
+$directivaScript = '';
+foreach (explode(';', $csp) as $directiva) {
+    if (str_starts_with(trim($directiva), 'script-src')) { $directivaScript = trim($directiva); }
+}
+$t->assert(str_contains($directivaScript, "'nonce-") && !str_contains($directivaScript, 'unsafe-inline'),
+    'Las paginas del ensamblado nuevo llevan CSP con nonce y sin unsafe-inline para scripts',
+    $directivaScript);
+$t->assert(str_contains($r['headers']['Cache-Control'] ?? '', 'no-store'),
+    'Las paginas del ensamblado nuevo no se almacenan en cache');
+$t->assert(($r['headers']['X-Frame-Options'] ?? '') === 'DENY',
+    'Las paginas del ensamblado nuevo no se pueden enmarcar');
+
+// El nonce cambia en cada peticion: reutilizarlo permitiria inyectar un
+// script valido conociendo el de una respuesta anterior.
+$nonce1 = $csp;
+$nonce2 = $sup->get('/credenciales')['headers']['Content-Security-Policy'] ?? '';
+$t->assert($nonce1 !== '' && $nonce1 !== $nonce2, 'El nonce de la CSP es distinto en cada peticion');
 
 // =====================================================================
 //  Resumen

@@ -134,7 +134,7 @@ credencial/
 ├── Dockerfile         ← imagen de producción PHP 8.2 + Apache
 ├── docker-compose.yml ← despliegue en Dokploy: app + MariaDB + cron
 ├── bin/console.php    ← consola de administración
-├── tests/run.php      ← 294 pruebas funcionales y de seguridad por HTTP real
+├── tests/run.php      ← 321 pruebas funcionales y de seguridad por HTTP real
 ├── docs/              ← documentación
 └── .env               ← clave maestra y credenciales de BD (nunca versionar)
 ```
@@ -150,7 +150,7 @@ y el porqué de cada desviación están en
 ## Estado de las pruebas
 
 ```
-294/294 pruebas superadas
+321/321 pruebas superadas
 ```
 
 Se ejecutan **por HTTP real** contra la aplicación servida por Apache, sobre
