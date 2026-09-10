@@ -21,7 +21,7 @@ $types      = tiposDeRecurso();
     <p><?= (int) $result['total'] ?> recurso(s) registrados que requieren autenticacion.</p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('systems.create')): ?>
+    <?php if (puede('systems.create')): ?>
       <a class="btn btn--primary" href="<?= e(url('/sistemas/nuevo')) ?>">Nuevo sistema</a>
     <?php endif; ?>
   </div>

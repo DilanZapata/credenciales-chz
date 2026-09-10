@@ -16,12 +16,12 @@ $id = (int) ($parametrosVista[0] ?? 0);
 $credential = respuestaVista(credencialController::verController($id));
 $pageTitle  = $credential['name'];
 
-$puedeGestionar = $auth->can('credentials.assign') || $auth->can('credentials.view_all');
-$veHistorial    = $auth->can('history.view');
-$veAuditoria    = $auth->can('audit.view');
+$puedeGestionar = puede('credentials.assign') || puede('credentials.view_all');
+$veHistorial    = puede('history.view');
+$veAuditoria    = puede('audit.view');
 
 $assignments = $puedeGestionar ? asignacionModel::forCredential($id) : [];
-$usersList   = $auth->can('credentials.assign') ? usuarioModel::activeSelectList() : [];
+$usersList   = puede('credentials.assign') ? usuarioModel::activeSelectList() : [];
 $history     = $veHistorial ? credencialModel::consultarHistorial(['credential_id' => $id], 15) : [];
 $secretMeta  = $veHistorial ? credencialModel::secretHistoryMeta($id) : [];
 $exportTrace = $veAuditoria ? exportacionModel::exportsContaining($id, 10) : [];
@@ -43,16 +43,16 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
     </p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('credentials.update')): ?>
+    <?php if (puede('credentials.update')): ?>
       <a class="btn" href="<?= e(url('/credenciales/' . $id . '/editar')) ?>">Editar</a>
     <?php endif; ?>
-    <?php if ($auth->can('credentials.rotate')): ?>
+    <?php if (puede('credentials.rotate')): ?>
       <button type="button" class="btn btn--primary" data-modal-open="modal-rotate">Actualizar contrasena</button>
     <?php endif; ?>
-    <?php if ($auth->can('history.view')): ?>
+    <?php if (puede('history.view')): ?>
       <a class="btn" href="<?= e(url('/credenciales/' . $id . '/historial')) ?>">Historial</a>
     <?php endif; ?>
-    <?php if ($auth->can('credentials.delete')): ?>
+    <?php if (puede('credentials.delete')): ?>
       <button type="button" class="btn btn--danger" data-modal-open="modal-delete">Dar de baja</button>
     <?php endif; ?>
   </div>
@@ -81,14 +81,14 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
 
         <div>
           <div class="text-small text-muted" style="margin-bottom:.25rem">Contrasena</div>
-          <?php if ($auth->canAny('credentials.secret.view', 'credentials.secret.copy')): ?>
+          <?php if (puedeAlguno('credentials.secret.view', 'credentials.secret.copy')): ?>
             <div class="secret" data-credential="<?= $id ?>" data-field="password" data-revealed="0">
               <span class="secret__value is-hidden">••••••••••••</span>
               <span class="secret__timer"></span>
-              <?php if ($auth->can('credentials.secret.view')): ?>
+              <?php if (puede('credentials.secret.view')): ?>
                 <button type="button" class="btn btn--sm" data-secret-toggle>Mostrar</button>
               <?php endif; ?>
-              <?php if ($auth->can('credentials.secret.copy')): ?>
+              <?php if (puede('credentials.secret.copy')): ?>
                 <button type="button" class="btn btn--sm" data-secret-copy>Copiar</button>
               <?php endif; ?>
             </div>
@@ -104,7 +104,7 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
         <?php if (!empty($credential['has_recovery_info'])): ?>
         <div>
           <div class="text-small text-muted" style="margin-bottom:.25rem">Informacion de recuperacion</div>
-          <?php if ($auth->can('credentials.recovery.view')): ?>
+          <?php if (puede('credentials.recovery.view')): ?>
             <button type="button" class="btn btn--sm" data-recovery="<?= $id ?>">Ver informacion de recuperacion</button>
             <div id="recovery-info" class="mt-1" hidden></div>
           <?php else: ?>
@@ -122,7 +122,7 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
         <dl class="dl">
           <dt>Sistema</dt>
           <dd>
-            <?php if ($auth->can('systems.view')): ?>
+            <?php if (puede('systems.view')): ?>
               <a href="<?= e(url('/sistemas/' . (int) $credential['system']['id'])) ?>"><?= e($credential['system']['name']) ?></a>
             <?php else: ?><?= e($credential['system']['name']) ?><?php endif; ?>
           </dd>
@@ -152,12 +152,12 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
     <?php endif; ?>
 
     <!-- ---------------------- Asignaciones ---------------------- -->
-    <?php if ($assignments !== [] || $auth->can('credentials.assign')): ?>
+    <?php if ($assignments !== [] || puede('credentials.assign')): ?>
     <div class="card">
       <div class="card__head">
         <h2>Usuarios con acceso</h2>
         <span class="spacer"></span>
-        <?php if ($auth->can('credentials.assign')): ?>
+        <?php if (puede('credentials.assign')): ?>
           <button type="button" class="btn btn--sm btn--primary" data-modal-open="modal-assign">Asignar usuario</button>
         <?php endif; ?>
       </div>
@@ -191,7 +191,7 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
                   <?php endif; ?>
                 </td>
                 <td class="nowrap">
-                  <?php if ((int) $row['is_active'] === 1 && $auth->can('credentials.revoke')): ?>
+                  <?php if ((int) $row['is_active'] === 1 && puede('credentials.revoke')): ?>
                   <form method="post" action="<?= e(url('/credenciales/' . $id . '/revocar/' . (int) $row['user_id'])) ?>"
                         data-confirm="Va a revocar el acceso de este usuario. Confirme la operacion.">
                     <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
@@ -302,7 +302,7 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
 </div>
 
 <!-- ------------------------------ Modales ------------------------- -->
-<?php if ($auth->can('credentials.rotate')): ?>
+<?php if (puede('credentials.rotate')): ?>
 <div class="modal-backdrop" id="modal-rotate" hidden>
   <div class="modal" role="dialog" aria-modal="true">
     <form method="post" action="<?= e(url('/credenciales/' . $id . '/rotar')) ?>">
@@ -359,7 +359,7 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
 </div>
 <?php endif; ?>
 
-<?php if ($auth->can('credentials.assign')): ?>
+<?php if (puede('credentials.assign')): ?>
 <div class="modal-backdrop" id="modal-assign" hidden>
   <div class="modal" role="dialog" aria-modal="true">
     <form method="post" action="<?= e(url('/credenciales/' . $id . '/asignar')) ?>">
@@ -397,7 +397,7 @@ $rotacion = estadoRotacion((string) $credential['rotation_state']);
 </div>
 <?php endif; ?>
 
-<?php if ($auth->can('credentials.delete')): ?>
+<?php if (puede('credentials.delete')): ?>
 <div class="modal-backdrop" id="modal-delete" hidden>
   <div class="modal" role="dialog" aria-modal="true">
     <form method="post" action="<?= e(url('/credenciales/' . $id . '/eliminar')) ?>">

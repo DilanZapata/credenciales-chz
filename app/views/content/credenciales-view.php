@@ -24,10 +24,10 @@ $items = $result['items'];
     <p><?= (int) $result['total'] ?> credencial(es) dentro de su alcance de consulta.</p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('credentials.create')): ?>
+    <?php if (puede('credentials.create')): ?>
       <a class="btn btn--primary" href="<?= e(url('/credenciales/nueva')) ?>">Nueva credencial</a>
     <?php endif; ?>
-    <?php if ($auth->can('reports.view')): ?>
+    <?php if (puede('reports.view')): ?>
       <a class="btn" href="<?= e(url('/reportes')) ?>">Exportar</a>
     <?php endif; ?>
   </div>
@@ -63,7 +63,7 @@ $items = $result['items'];
           <?php endforeach; ?>
         </select>
       </div>
-      <?php if ($auth->can('credentials.view_all')): ?>
+      <?php if (puede('credentials.view_all')): ?>
       <div class="field">
         <label for="company_id">Empresa</label>
         <select id="company_id" name="company_id">
@@ -105,7 +105,7 @@ $items = $result['items'];
       </div>
     </form>
 
-    <?php if ($auth->can('credentials.view_all')): ?>
+    <?php if (puede('credentials.view_all')): ?>
     <div class="row mt-1" style="gap:.4rem">
       <a class="btn btn--sm <?= !empty($filters['expired']) ? 'btn--primary' : '' ?>" href="<?= e(url('/credenciales?expired=1')) ?>">Vencidas / rotacion pendiente</a>
       <a class="btn btn--sm <?= !empty($filters['never_rotated']) ? 'btn--primary' : '' ?>" href="<?= e(url('/credenciales?never_rotated=1')) ?>">Nunca actualizadas</a>

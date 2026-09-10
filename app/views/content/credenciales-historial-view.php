@@ -20,7 +20,7 @@ $access    = $data['secret_access'];
   </div>
   <div class="page-actions">
     <a class="btn" href="<?= e(url('/credenciales/' . $id)) ?>">Volver a la ficha</a>
-    <?php if ($auth->can('export.history')): ?>
+    <?php if (puede('export.history')): ?>
     <form method="post" action="<?= e(url('/reportes/generar')) ?>">
       <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
       <input type="hidden" name="type" value="history">
@@ -65,7 +65,7 @@ $access    = $data['secret_access'];
               <?php endif; ?>
             </td>
             <td class="nowrap">
-              <?php if ((int) $row['is_current'] !== 1 && $auth->can('credentials.secret.history')): ?>
+              <?php if ((int) $row['is_current'] !== 1 && puede('credentials.secret.history')): ?>
                 <span class="secret" data-credential="<?= $id ?>" data-field="password" data-version="<?= (int) $row['version'] ?>" data-revealed="0">
                   <span class="secret__value is-hidden">••••••</span>
                   <span class="secret__timer"></span>

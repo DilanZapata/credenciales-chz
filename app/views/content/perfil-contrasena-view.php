@@ -2,7 +2,7 @@
 /** Cambio de la contrasena propia. */
 
 $pageTitle = 'Cambiar contrasena';
-$forced = (int) (($auth->user()['must_change_password'] ?? 0)) === 1;
+$forced = (int) ((usuarioActual()['must_change_password'] ?? 0)) === 1;
 ?>
 <div class="page-head">
   <div class="page-head__text">

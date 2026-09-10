@@ -70,7 +70,7 @@ $currentId = $datos['current_id'];
               </span>
             </td>
             <td class="nowrap">
-              <?php if ($row['status'] === 'active' && $row['id'] !== $currentId && $auth->can('sessions.revoke')): ?>
+              <?php if ($row['status'] === 'active' && $row['id'] !== $currentId && puede('sessions.revoke')): ?>
               <form method="post" action="<?= e(url('/sesiones/' . $row['id'] . '/cerrar')) ?>"
                     data-confirm="Se cerrara la sesion de este usuario de inmediato.">
                 <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">

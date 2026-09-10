@@ -170,7 +170,6 @@ if (is_string($tokenSesion) && $tokenSesion !== '') {
                 usuarioModel::effectivePermissions((int) $usuarioActual['id']),
                 usuarioModel::rolesOf((int) $usuarioActual['id'])
             );
-            View::share('auth', new \App\Services\AuthContext());
             View::share('csrf', (string) $sesionActual['csrf_token']);
             View::share('currentPath', $rutaSolicitada);
         } else {

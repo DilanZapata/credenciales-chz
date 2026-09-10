@@ -166,6 +166,19 @@ class viewsModel
     }
 
     /**
+     * Patron y parametros de una direccion, para quien no busca una vista.
+     *
+     * Lo usa el despacho de escrituras, que reconoce las rutas con el mismo
+     * criterio que el de vistas para que no puedan divergir.
+     *
+     * @return array{0:string,1:array<int,string>}
+     */
+    public static function patron(string $ruta): array
+    {
+        return self::normalizar($ruta);
+    }
+
+    /**
      * Convierte /credenciales/12/historial en /credenciales/{id}/historial y
      * devuelve aparte los valores encontrados.
      *

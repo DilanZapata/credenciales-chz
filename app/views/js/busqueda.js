@@ -21,7 +21,7 @@
       var term = input.value.trim();
       if (term.length < 2) { results.hidden = true; results.innerHTML = ''; return; }
       timeout = setTimeout(function () {
-        App.api('/api/v1/buscar?q=' + encodeURIComponent(term)).then(function (data) {
+        App.api(App.api_.utilidades + '?accion=buscar&q=' + encodeURIComponent(term)).then(function (data) {
           results.innerHTML = '';
           var total = 0;
           (data.credentials || []).forEach(function (item) {

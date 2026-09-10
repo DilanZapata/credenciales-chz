@@ -8,26 +8,22 @@ declare(strict_types=1);
  * Se invoca desde: php bin/console.php seed:demo
  */
 
-use App\Core\Database;
-use App\Services\CryptoService;
-use App\Services\PasswordGeneratorService;
+use app\models\cifradoModel;
+use app\models\generadorModel;
+use app\models\mainModel;
 
-/** @var \App\Core\Container $container */
-/** @var Database $db */
-
-$db        = Database::instance();
 $crypto    = $container->get(CryptoService::class);
 $generator = $container->get(PasswordGeneratorService::class);
 
 echo PHP_EOL . "Cargando datos de demostracion..." . PHP_EOL;
 
-$companyId = (int) ($db->scalar('SELECT id FROM companies ORDER BY id LIMIT 1')
-    ?? $db->insert('INSERT INTO companies (name) VALUES (?)', ['Mi Empresa']));
+$companyId = (int) (mainModel::obtenerValor('SELECT id FROM companies ORDER BY id LIMIT 1')
+    ?? mainModel::ejecutarInsert('INSERT INTO companies (name) VALUES (?)', ['Mi Empresa']));
 
 $locations = [];
 foreach ([['Bogota', 'Bogota D.C.'], ['Medellin', 'Medellin']] as [$name, $city]) {
-    $existing = $db->scalar('SELECT id FROM locations WHERE company_id = ? AND name = ?', [$companyId, $name]);
-    $locations[$name] = (int) ($existing ?? $db->insert(
+    $existing = mainModel::obtenerValor('SELECT id FROM locations WHERE company_id = ? AND name = ?', [$companyId, $name]);
+    $locations[$name] = (int) ($existing ?? mainModel::ejecutarInsert(
         'INSERT INTO locations (company_id, name, city, country) VALUES (?,?,?,?)',
         [$companyId, $name, $city, 'Colombia']
     ));
@@ -35,21 +31,21 @@ foreach ([['Bogota', 'Bogota D.C.'], ['Medellin', 'Medellin']] as [$name, $city]
 
 $departments = [];
 foreach (['Contabilidad', 'Tecnologia', 'Compras', 'Recursos Humanos'] as $name) {
-    $existing = $db->scalar('SELECT id FROM departments WHERE company_id = ? AND name = ?', [$companyId, $name]);
-    $departments[$name] = (int) ($existing ?? $db->insert(
+    $existing = mainModel::obtenerValor('SELECT id FROM departments WHERE company_id = ? AND name = ?', [$companyId, $name]);
+    $departments[$name] = (int) ($existing ?? mainModel::ejecutarInsert(
         'INSERT INTO departments (company_id, location_id, name) VALUES (?,?,?)',
         [$companyId, $locations['Bogota'], $name]
     ));
 }
 
 $categoryId = static function (string $slug) use ($db): ?int {
-    $id = $db->scalar('SELECT id FROM categories WHERE slug = ?', [$slug]);
+    $id = mainModel::obtenerValor('SELECT id FROM categories WHERE slug = ?', [$slug]);
     return $id === null ? null : (int) $id;
 };
 
 // ------------------------------- Usuarios ----------------------------
 $roles = [];
-foreach ($db->select('SELECT id, code FROM roles') as $row) {
+foreach (mainModel::obtenerFilas('SELECT id, code FROM roles') as $row) {
     $roles[(string) $row['code']] = (int) $row['id'];
 }
 
@@ -62,14 +58,14 @@ $demoUsers = [
 
 $createdUsers = [];
 foreach ($demoUsers as [$nid, $username, $email, $first, $last, $roleCode, $position, $department]) {
-    $existing = $db->scalar('SELECT id FROM users WHERE national_id = ?', [$nid]);
+    $existing = mainModel::obtenerValor('SELECT id FROM users WHERE national_id = ?', [$nid]);
     if ($existing !== null) {
         $createdUsers[$username] = (int) $existing;
         continue;
     }
-    $password = $generator->generate(['length' => 16, 'exclude_ambiguous' => true]);
-    $hash     = $crypto->hashPassword($password);
-    $userId   = $db->insert(
+    $password = generadorModel::generate(['length' => 16, 'exclude_ambiguous' => true]);
+    $hash     = cifradoModel::hashContrasena($password);
+    $userId   = mainModel::ejecutarInsert(
         'INSERT INTO users (national_id, username, email, first_name, last_name, position, company_id,
                             location_id, department_id, password_hash, password_algo, password_changed_at,
                             must_change_password, status)
@@ -77,7 +73,7 @@ foreach ($demoUsers as [$nid, $username, $email, $first, $last, $roleCode, $posi
         [$nid, $username, $email, $first, $last, $position, $companyId,
          $locations['Bogota'], $departments[$department], $hash['hash'], $hash['algo']]
     );
-    $db->execute('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$userId, $roles[$roleCode]]);
+    mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$userId, $roles[$roleCode]]);
     $createdUsers[$username] = $userId;
     echo sprintf("  Usuario %-14s (%s)  contrasena: %s\n", $username, $roleCode, $password);
 }
@@ -96,12 +92,12 @@ $systems = [
 
 $systemIds = [];
 foreach ($systems as [$name, $type, $catSlug, $url, $ip, $port, $platform, $department, $criticality]) {
-    $existing = $db->scalar('SELECT id FROM systems WHERE name = ?', [$name]);
+    $existing = mainModel::obtenerValor('SELECT id FROM systems WHERE name = ?', [$name]);
     if ($existing !== null) {
         $systemIds[$name] = (int) $existing;
         continue;
     }
-    $systemIds[$name] = $db->insert(
+    $systemIds[$name] = mainModel::ejecutarInsert(
         'INSERT INTO systems (name, description, category_id, resource_type, company_id, location_id,
                               department_id, url, ip_address, port, platform, owner_user_id, criticality, status)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,"active")',
@@ -126,12 +122,12 @@ $credentials = [
 $credentialIds = [];
 foreach ($credentials as [$systemName, $name, $username, $email, $rotation]) {
     $systemId = $systemIds[$systemName];
-    $existing = $db->scalar('SELECT id FROM credentials WHERE system_id = ? AND name = ?', [$systemId, $name]);
+    $existing = mainModel::obtenerValor('SELECT id FROM credentials WHERE system_id = ? AND name = ?', [$systemId, $name]);
     if ($existing !== null) {
         $credentialIds[$name] = (int) $existing;
         continue;
     }
-    $credentialId = $db->insert(
+    $credentialId = mainModel::ejecutarInsert(
         'INSERT INTO credentials (system_id, name, username, email, auth_method, recovery_email,
                                   observations, owner_user_id, status, rotation_period_days,
                                   next_rotation_at, password_changed_at, created_by)
@@ -141,20 +137,20 @@ foreach ($credentials as [$systemName, $name, $username, $email, $rotation]) {
          $createdUsers['maria.gomez'] ?? null]
     );
 
-    $secret   = $generator->generate(['length' => 22, 'exclude_ambiguous' => true]);
-    $envelope = $crypto->encrypt($secret, $crypto->aad('credential', $credentialId, 'password', 1));
-    $db->execute(
+    $secret   = generadorModel::generate(['length' => 22, 'exclude_ambiguous' => true]);
+    $envelope = cifradoModel::cifrar($secret, cifradoModel::aad('credential', $credentialId, 'password', 1));
+    mainModel::ejecutarConsultaAfectadas(
         'INSERT INTO credential_secrets (credential_id, field, version, is_current, algo, key_version,
                                          ciphertext, nonce, tag, wrapped_dek, dek_nonce, dek_tag,
                                          secret_length, strength_score, fingerprint, change_reason, created_by)
          VALUES (?,"password",1,1,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [$credentialId, $envelope['algo'], $envelope['key_version'], $envelope['ciphertext'],
          $envelope['nonce'], $envelope['tag'], $envelope['wrapped_dek'], $envelope['dek_nonce'],
-         $envelope['dek_tag'], strlen($secret), $generator->strength($secret),
-         $crypto->fingerprint($secret), 'Registro inicial de demostracion',
+         $envelope['dek_tag'], strlen($secret), generadorModel::strength($secret),
+         cifradoModel::huella($secret), 'Registro inicial de demostracion',
          $createdUsers['maria.gomez'] ?? null]
     );
-    $db->execute(
+    mainModel::ejecutarConsultaAfectadas(
         'INSERT INTO credential_history (credential_id, action, reason, performed_by)
          VALUES (?, "created", "Alta de la credencial (demo)", ?)',
         [$credentialId, $createdUsers['maria.gomez'] ?? null]
@@ -171,7 +167,7 @@ foreach ($assignments as $username => $names) {
     if (!isset($createdUsers[$username])) { continue; }
     foreach ($names as $name) {
         if (!isset($credentialIds[$name])) { continue; }
-        $db->execute(
+        mainModel::ejecutarConsultaAfectadas(
             'INSERT IGNORE INTO credential_assignments
                (credential_id, user_id, can_view_secret, can_copy_secret, can_view_recovery, granted_by)
              VALUES (?,?,1,1,0,?)',
@@ -182,7 +178,7 @@ foreach ($assignments as $username => $names) {
 
 // Una credencial deliberadamente vencida para ejercitar las alertas.
 if (isset($credentialIds['Cuenta institucional'])) {
-    $db->execute(
+    mainModel::ejecutarConsultaAfectadas(
         'UPDATE credentials SET expires_at = DATE_SUB(CURDATE(), INTERVAL 10 DAY),
                                 next_rotation_at = DATE_SUB(CURDATE(), INTERVAL 5 DAY)
           WHERE id = ?',

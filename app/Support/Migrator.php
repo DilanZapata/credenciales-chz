@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace App\Support;
 
-use App\Core\Database;
-use PDOException;
+use app\models\mainModel;
 use RuntimeException;
+use Throwable;
 
 /**
  * Ejecutor de migraciones versionadas.
@@ -23,14 +23,14 @@ use RuntimeException;
  */
 final class Migrator
 {
-    public function __construct(private Database $db, private string $directory)
+    public function __construct(private string $directory)
     {
     }
 
     /** Crea la tabla de control si aun no existe. */
     public function ensureRegistry(): void
     {
-        $this->db->exec(
+        mainModel::ejecutarConsulta(
             'CREATE TABLE IF NOT EXISTS schema_migrations (
                 version     VARCHAR(20)  NOT NULL,
                 filename    VARCHAR(190) NOT NULL,
@@ -72,7 +72,7 @@ final class Migrator
     public function applied(): array
     {
         $this->ensureRegistry();
-        $rows = $this->db->select('SELECT version, filename, checksum, applied_at FROM schema_migrations');
+        $rows = mainModel::obtenerFilas('SELECT version, filename, checksum, applied_at FROM schema_migrations');
         $out  = [];
         foreach ($rows as $row) {
             $out[(string) $row['version']] = [
@@ -129,9 +129,9 @@ final class Migrator
 
             foreach ($statements as $statement) {
                 try {
-                    $this->db->exec($statement);
+                    mainModel::ejecutarConsulta($statement);
                     $applied++;
-                } catch (PDOException $e) {
+                } catch (Throwable $e) {
                     throw new RuntimeException(sprintf(
                         'Fallo la migracion %s en la sentencia %d: %s',
                         $migration['filename'],
@@ -141,7 +141,7 @@ final class Migrator
                 }
             }
 
-            $this->db->execute(
+            mainModel::ejecutarConsultaAfectadas(
                 'INSERT INTO schema_migrations (version, filename, checksum, statements) VALUES (?,?,?,?)',
                 [$migration['version'], $migration['filename'], $migration['checksum'], $applied]
             );

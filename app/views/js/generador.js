@@ -34,7 +34,7 @@
 
     $('[data-generate]', panel).addEventListener('click', function (e) {
       e.preventDefault();
-      App.api('/api/v1/generador', { method: 'POST', body: options() }).then(function (data) {
+      App.api(App.api_.utilidades + '?accion=generar', { method: 'POST', body: options() }).then(function (data) {
         if (target) {
           target.value = data.password;
           target.type = 'text';
@@ -58,7 +58,7 @@
         var value = input.value;
         if (!value) { bar.style.width = '0%'; if (label) { label.textContent = ''; } return; }
         timeout = setTimeout(function () {
-          App.api('/api/v1/fortaleza', { method: 'POST', body: { password: value } }).then(function (data) {
+          App.api(App.api_.utilidades + '?accion=fortaleza', { method: 'POST', body: { password: value } }).then(function (data) {
             bar.style.width = data.strength + '%';
             meter.className = 'bar ' + (data.strength >= 70 ? 'ok' : (data.strength >= 40 ? 'warn' : 'danger'));
             if (label) { label.textContent = data.label; }

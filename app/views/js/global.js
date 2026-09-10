@@ -15,6 +15,15 @@
   var BASE = CFG.basePath || '';
   var CSRF = CFG.csrf || '';
 
+  // Endpoints del sistema (un archivo por modulo, como en la referencia).
+  var API = {
+    login:       '/app/api/login-api.php',
+    secretos:    '/app/api/secretos-api.php',
+    utilidades:  '/app/api/utilidades-api.php',
+    credenciales:'/app/api/credenciales-api.php',
+    reportes:    '/app/api/reportes-api.php'
+  };
+
   // ---------------------------------------------------------------
   //  Utilidades
   // ---------------------------------------------------------------
@@ -37,14 +46,19 @@
           // no es estandar y Apache lo convierte en 500.
           var mensaje = data.csrf
             ? 'La sesion del formulario expiro. Recargue la pagina.'
-            : (data.error || data.message || 'Error en la solicitud.');
+            : (data.message || data.error || 'Error en la solicitud.');
           var err = new Error(mensaje);
           err.status = res.status;
           err.csrf = !!data.csrf;
+          err.reauth = !!data.reauth_required;
           err.data = data;
           throw err;
         }
-        return data;
+        // Los endpoints responden {code,status,title,message,data}; a quien
+        // llama solo le interesan los datos.
+        return (data && typeof data === 'object' && 'status' in data && 'data' in data)
+          ? data.data
+          : data;
       });
     });
   }
@@ -88,7 +102,7 @@
       function onConfirm() {
         var btn = $('#reauth-confirm', modal);
         btn.classList.add('is-busy');
-        api('/api/v1/reauth', {
+        api(API.login + '?accion=reauth', {
           method: 'POST',
           body: { password: passInput.value, code: codeInput ? codeInput.value : '' }
         }).then(function () {
@@ -111,7 +125,7 @@
   /** Ejecuta una llamada y, si el backend exige step-up, lo resuelve y reintenta. */
   function withReauth(fn, message) {
     return fn().catch(function (err) {
-      if (err.status === 423 || (err.data && err.data.reauth_required)) {
+      if (err.status === 423 || err.reauth) {
         return requireReauth(message).then(fn);
       }
       throw err;
@@ -193,7 +207,7 @@
     if (!CFG.authenticated) { return; }
     var warned = false;
     setInterval(function () {
-      api('/api/v1/sesion').then(function (data) {
+      api(API.login + '?accion=estado').then(function (data) {
         if (!data.authenticated) { window.location.href = BASE + '/entrar'; return; }
         if (data.expires_in_seconds < 120 && !warned) {
           warned = true;
@@ -211,6 +225,7 @@
   // Lo que consumen las hojas de cada vista.
   window.App = {
     base: BASE,
+    api_: API,
     $: $, $$: $$,
     api: api,
     toast: toast,

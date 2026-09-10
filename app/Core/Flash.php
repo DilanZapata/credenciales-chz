@@ -9,6 +9,10 @@ namespace App\Core;
  * Se apoyan en una cookie firmada de vida muy corta en lugar de la sesion
  * nativa de PHP (que esta deshabilitada). El contenido es texto de interfaz;
  * nunca se colocan secretos aqui.
+ *
+ * El flujo es siempre el mismo: quien escribe llama a set() y guarda con
+ * guardarCookie() antes de redirigir; quien dibuja la pagina llama a
+ * cargarDeCookie() y expirarCookie() para que el aviso no se repita.
  */
 final class Flash
 {
@@ -18,36 +22,12 @@ final class Flash
     private static array $pending = [];
     private static bool $loaded   = false;
 
-    public static function load(Request $request): void
-    {
-        if (self::$loaded) {
-            return;
-        }
-        self::$loaded = true;
-        $raw = $request->cookie(self::COOKIE);
-        if ($raw === null || $raw === '') {
-            return;
-        }
-        $parts = explode('.', $raw, 2);
-        if (count($parts) !== 2) {
-            return;
-        }
-        [$payload, $signature] = $parts;
-        $expected = hash_hmac('sha256', $payload, self::key());
-        if (!hash_equals($expected, $signature)) {
-            return;
-        }
-        $decoded = json_decode((string) base64_decode($payload, true), true);
-        if (is_array($decoded)) {
-            self::$data = $decoded;
-        }
-    }
 
     /**
      * Carga los mensajes directamente de $_COOKIE.
      *
-     * Lo usa index.php, que ya no construye un objeto Request: en la
-     * arquitectura de Porcify la peticion son las superglobales.
+     * En la arquitectura de Porcify la peticion son las superglobales: no
+     * hay objeto Request del que sacarla.
      */
     public static function cargarDeCookie(): void
     {
@@ -107,19 +87,34 @@ final class Flash
         return isset(self::$data[$key]);
     }
 
-    public static function applyTo(Response $response): Response
+    /**
+     * Escribe la cookie con los mensajes pendientes.
+     *
+     * La usan el despacho de formularios y la entrega de archivos, que
+     * redirigen con header() directamente.
+     */
+    public static function guardarCookie(): void
     {
+        if (headers_sent()) {
+            return;
+        }
+        $base = (string) Config::get('app.base_path', '');
+        $ruta = $base === '' ? '/' : $base . '/';
+
         if (self::$pending === []) {
-            // Se limpia la cookie tras consumirla.
-            if (self::$data !== []) {
-                $response->withCookie(self::COOKIE, '', time() - 3600);
-            }
-            return $response;
+            self::expirarCookie();
+            return;
         }
         $payload   = base64_encode((string) json_encode(self::$pending, JSON_UNESCAPED_UNICODE));
         $signature = hash_hmac('sha256', $payload, self::key());
-        return $response->withCookie(self::COOKIE, $payload . '.' . $signature, time() + 120);
+        setcookie(self::COOKIE, $payload . '.' . $signature, [
+            'expires'  => time() + 120,
+            'path'     => $ruta,
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
     }
+
 
     private static function key(): string
     {

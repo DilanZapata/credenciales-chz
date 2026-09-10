@@ -13,10 +13,10 @@ $pageTitle = $system['name'];
     <p><?= e(tipoRecurso($system['resource_type'])) ?> · <?= e($system['category_name'] ?? 'Sin categoria') ?></p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('systems.update')): ?>
+    <?php if (puede('systems.update')): ?>
       <a class="btn" href="<?= e(url('/sistemas/' . (int) $system['id'] . '/editar')) ?>">Editar</a>
     <?php endif; ?>
-    <?php if ($auth->can('credentials.view')): ?>
+    <?php if (puede('credentials.view')): ?>
       <a class="btn btn--primary" href="<?= e(url('/credenciales?system_id=' . (int) $system['id'])) ?>">
         Ver credenciales (<?= (int) $system['credential_count'] ?>)
       </a>
@@ -65,7 +65,7 @@ $pageTitle = $system['name'];
         <hr><p class="mb-0" style="white-space:pre-wrap"><?= e($system['description']) ?></p>
       <?php endif; ?>
     </div>
-    <?php if ($auth->can('systems.delete') && $system['status'] !== 'archived'): ?>
+    <?php if (puede('systems.delete') && $system['status'] !== 'archived'): ?>
     <div class="card__foot row row--end">
       <form method="post" action="<?= e(url('/sistemas/' . (int) $system['id'] . '/archivar')) ?>"
             data-confirm="Al archivar el sistema dejara de aparecer en los listados activos. Confirme.">

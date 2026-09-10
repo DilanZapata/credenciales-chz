@@ -4,10 +4,8 @@
  *
  * Se dibuja siempre en las vistas con sesion: el cliente lo abre cuando el
  * servidor responde 423 exigiendo confirmar la identidad.
- *
- * @var \App\Services\AuthContext $auth
  */
-$usuario = $auth->user() ?? [];
+$usuario = usuarioActual();
 ?>
 <div class="modal-backdrop" id="reauth-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reauth-title">

@@ -15,7 +15,7 @@ $overrides   = $data['overrides'];
 $assignments = $data['assignments'];
 $pageTitle   = $user['first_name'] . ' ' . $user['last_name'];
 
-$puedeAsignar = $auth->can('users.assign_roles');
+$puedeAsignar = puede('users.assign_roles');
 $allRoles  = $puedeAsignar ? catalogoModel::roles() : [];
 $allPerms  = $puedeAsignar ? catalogoModel::permissions() : [];
 $usersList = usuarioModel::activeSelectList();
@@ -36,17 +36,17 @@ $activeAssignments = array_filter($assignments, static fn (array $a): bool => (i
     </p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('users.update')): ?>
+    <?php if (puede('users.update')): ?>
       <a class="btn" href="<?= e(url('/usuarios/' . $id . '/editar')) ?>">Editar</a>
     <?php endif; ?>
-    <?php if ($auth->can('users.reset_password')): ?>
+    <?php if (puede('users.reset_password')): ?>
       <form method="post" action="<?= e(url('/usuarios/' . $id . '/restablecer')) ?>"
             data-confirm="Se generara una contrasena temporal y se cerraran sus sesiones. Confirme.">
         <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
         <button class="btn" type="submit">Restablecer contrasena</button>
       </form>
     <?php endif; ?>
-    <?php if ($auth->can('users.deactivate')): ?>
+    <?php if (puede('users.deactivate')): ?>
       <?php if ($user['status'] === 'active'): ?>
         <button type="button" class="btn btn--danger" data-modal-open="modal-deactivate">Desactivar</button>
       <?php else: ?>
@@ -56,7 +56,7 @@ $activeAssignments = array_filter($assignments, static fn (array $a): bool => (i
         </form>
       <?php endif; ?>
     <?php endif; ?>
-    <?php if ($auth->can('sessions.revoke')): ?>
+    <?php if (puede('sessions.revoke')): ?>
       <form method="post" action="<?= e(url('/sesiones/usuario/' . $id . '/cerrar')) ?>"
             data-confirm="Se cerraran todas las sesiones activas de este usuario.">
         <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
@@ -103,7 +103,7 @@ $activeAssignments = array_filter($assignments, static fn (array $a): bool => (i
                   </span>
                 </td>
                 <td class="nowrap">
-                  <?php if ((int) $row['is_active'] === 1 && $auth->can('credentials.revoke')): ?>
+                  <?php if ((int) $row['is_active'] === 1 && puede('credentials.revoke')): ?>
                   <form method="post" action="<?= e(url('/credenciales/' . (int) $row['credential_id'] . '/revocar/' . $id)) ?>"
                         data-confirm="Revocar este acceso.">
                     <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
@@ -121,7 +121,7 @@ $activeAssignments = array_filter($assignments, static fn (array $a): bool => (i
       </div>
     </div>
 
-    <?php if ($auth->can('users.assign_roles') && $allPerms !== []): ?>
+    <?php if (puede('users.assign_roles') && $allPerms !== []): ?>
     <div class="card">
       <div class="card__head"><h2>Excepciones de permisos</h2></div>
       <form method="post" action="<?= e(url('/usuarios/' . $id . '/permisos')) ?>">
@@ -212,7 +212,7 @@ $activeAssignments = array_filter($assignments, static fn (array $a): bool => (i
       </div>
     </div>
 
-    <?php if ($auth->can('audit.view')): ?>
+    <?php if (puede('audit.view')): ?>
     <div class="card">
       <div class="card__body">
         <a class="btn btn--block btn--sm" href="<?= e(url('/auditoria?user_id=' . $id)) ?>">Ver auditoria de este usuario</a>
@@ -222,7 +222,7 @@ $activeAssignments = array_filter($assignments, static fn (array $a): bool => (i
   </div>
 </div>
 
-<?php if ($auth->can('users.deactivate') && $user['status'] === 'active'): ?>
+<?php if (puede('users.deactivate') && $user['status'] === 'active'): ?>
 <div class="modal-backdrop" id="modal-deactivate" hidden>
   <div class="modal" role="dialog" aria-modal="true">
     <form method="post" action="<?= e(url('/usuarios/' . $id . '/desactivar')) ?>">

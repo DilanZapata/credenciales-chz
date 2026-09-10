@@ -38,6 +38,35 @@ if (!function_exists('asset')) {
     }
 }
 
+if (!function_exists('puede')) {
+    /**
+     * Permisos del usuario de la peticion, para las vistas.
+     *
+     * Ocultar un boton NO es el control de acceso: el controlador y el
+     * modelo vuelven a comprobar el permiso. Esto solo evita ofrecer lo
+     * que la persona no va a poder hacer.
+     */
+    function puede(string $permiso): bool
+    {
+        return \app\models\contextoModel::puede($permiso);
+    }
+}
+
+if (!function_exists('puedeAlguno')) {
+    function puedeAlguno(string ...$permisos): bool
+    {
+        return \app\models\contextoModel::puedeAlguno(...$permisos);
+    }
+}
+
+if (!function_exists('usuarioActual')) {
+    /** @return array<string,mixed> */
+    function usuarioActual(): array
+    {
+        return \app\models\contextoModel::usuario() ?? [];
+    }
+}
+
 if (!function_exists('respuestaVista')) {
     /**
      * Extrae los datos de la respuesta de un controlador para una vista.

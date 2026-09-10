@@ -43,7 +43,7 @@ $backupCodes    = $datos['backup_codes'];
                 <td class="nowrap text-small"><?= e(fecha($row['created_at'], true)) ?></td>
                 <td class="nowrap text-small"><?= e(desde($row['last_activity_at'])) ?></td>
                 <td class="nowrap">
-                  <?php if ($row['id'] !== $currentSession && $auth->can('sessions.revoke')): ?>
+                  <?php if ($row['id'] !== $currentSession && puede('sessions.revoke')): ?>
                     <form method="post" action="<?= e(url('/sesiones/' . e($row['id']) . '/cerrar')) ?>">
                       <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
                       <button class="btn btn--sm btn--danger" type="submit">Cerrar</button>

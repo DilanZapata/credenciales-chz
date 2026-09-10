@@ -78,7 +78,7 @@ final class HttpClient
     {
         $token = $this->cookies['scgca_session'] ?? null;
         if ($token !== null) {
-            $fila = \App\Core\Database::instance()->selectOne(
+            $fila = \app\models\mainModel::obtenerFila(
                 'SELECT csrf_token FROM sessions WHERE id = ?',
                 [hash('sha256', $token)]
             );

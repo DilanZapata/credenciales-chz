@@ -20,7 +20,7 @@ $usersList = usuarioModel::activeSelectList();
     <p><?= (int) $result['total'] ?> evento(s) registrados. Cada accion critica del sistema deja rastro.</p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('audit.export')): ?>
+    <?php if (puede('audit.export')): ?>
     <form method="post" action="<?= e(url('/reportes/generar')) ?>">
       <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
       <input type="hidden" name="type" value="audit">

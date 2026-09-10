@@ -63,10 +63,10 @@ $search = $datos['search'];
         <div class="secret" data-credential="<?= $credentialId ?>" data-field="password" data-revealed="0">
           <span class="secret__value is-hidden">••••••••••••</span>
           <span class="secret__timer"></span>
-          <?php if ((int) $row['can_view_secret'] === 1 && $auth->can('credentials.secret.view')): ?>
+          <?php if ((int) $row['can_view_secret'] === 1 && puede('credentials.secret.view')): ?>
             <button type="button" class="btn btn--sm" data-secret-toggle>Mostrar</button>
           <?php endif; ?>
-          <?php if ((int) $row['can_copy_secret'] === 1 && $auth->can('credentials.secret.copy')): ?>
+          <?php if ((int) $row['can_copy_secret'] === 1 && puede('credentials.secret.copy')): ?>
             <button type="button" class="btn btn--sm" data-secret-copy>Copiar</button>
           <?php endif; ?>
         </div>

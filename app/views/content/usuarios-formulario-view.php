@@ -137,7 +137,7 @@ $v = static fn (string $k, $d = '') => $user[$k] ?? $d;
   <div class="card">
     <div class="card__head"><h2>Roles</h2></div>
     <div class="card__body">
-      <?php if (!$auth->can('users.assign_roles')): ?>
+      <?php if (!puede('users.assign_roles')): ?>
         <p class="text-muted mb-0">No tiene permiso para modificar los roles.</p>
       <?php else: ?>
       <div class="form-grid">

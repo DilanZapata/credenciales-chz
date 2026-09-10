@@ -9,7 +9,7 @@
 use app\controllers\tableroController;
 
 // El consultor no ve indicadores globales: solo sus accesos.
-if (!$auth->can('credentials.view_all')) {
+if (!puede('credentials.view_all')) {
     redirigir('/mis-accesos');
 }
 
@@ -43,10 +43,10 @@ foreach ($accessSeries as $point) { $maxSeries = max($maxSeries, (int) $point['t
     <p>Estado del inventario de credenciales, accesos y seguridad.</p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('credentials.create')): ?>
+    <?php if (puede('credentials.create')): ?>
       <a class="btn btn--primary" href="<?= e(url('/credenciales/nueva')) ?>">Nueva credencial</a>
     <?php endif; ?>
-    <?php if ($auth->can('reports.view')): ?>
+    <?php if (puede('reports.view')): ?>
       <a class="btn" href="<?= e(url('/reportes')) ?>">Generar reporte</a>
     <?php endif; ?>
   </div>

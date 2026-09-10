@@ -52,8 +52,8 @@
     var field = box.dataset.field || 'password';
     var version = box.dataset.version || '';
     var path = version
-      ? '/api/v1/credenciales/' + id + '/secreto/historial/' + version
-      : '/api/v1/credenciales/' + id + '/secreto';
+      ? App.api_.secretos + '?accion=historico&id=' + id + '&version=' + version
+      : App.api_.secretos + '?accion=revelar&id=' + id;
     return App.withReauth(function () {
       return App.api(path, { method: 'POST', body: { field: field, copy: !!copy } });
     }, 'Confirme su contrasena para revelar este secreto.');
@@ -120,7 +120,9 @@
     if (recBtn) {
       event.preventDefault();
       var rid = recBtn.dataset.recovery;
-      App.withReauth(function () { return App.api('/api/v1/credenciales/' + rid + '/recuperacion'); },
+      App.withReauth(function () {
+        return App.api(App.api_.secretos + '?accion=recuperacion&id=' + rid);
+      },
         'Confirme su contrasena para ver la informacion de recuperacion.')
         .then(function (data) {
           var target = $('#recovery-info');

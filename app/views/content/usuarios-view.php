@@ -16,7 +16,7 @@ $roles   = catalogoModel::roles();
     <p><?= (int) $result['total'] ?> usuario(s) registrados.</p>
   </div>
   <div class="page-actions">
-    <?php if ($auth->can('users.create')): ?>
+    <?php if (puede('users.create')): ?>
       <a class="btn btn--primary" href="<?= e(url('/usuarios/nuevo')) ?>">Nuevo usuario</a>
     <?php endif; ?>
   </div>

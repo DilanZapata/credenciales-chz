@@ -10,8 +10,10 @@ declare(strict_types=1);
  *
  * No es PSR-4 de Composer: el proyecto no usa Composer en ejecucion.
  *
- * Se conserva el mapeo del espacio de nombres App\ en mayuscula mientras
- * dure la migracion, para que ambos convivan sin romperse.
+ * El espacio de nombres App\ en mayuscula sigue vivo para la
+ * infraestructura compartida de app/Core y app/Support (configuracion,
+ * entorno, registro, plantillas, validacion). No es codigo heredado: son
+ * piezas que la referencia no tiene y que este sistema si necesita.
  */
 spl_autoload_register(static function (string $clase): void {
 
@@ -22,7 +24,7 @@ spl_autoload_register(static function (string $clase): void {
         return;
     }
 
-    // Convencion actual (en retirada):  App\Core\Kernel  ->  app/Core/Kernel.php
+    // Infraestructura compartida:  App\Core\Config  ->  app/Core/Config.php
     if (str_starts_with($clase, 'App\\')) {
         $relativa = str_replace('\\', '/', substr($clase, 4));
         $archivo  = __DIR__ . '/app/' . $relativa . '.php';

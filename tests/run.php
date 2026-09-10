@@ -39,8 +39,8 @@ register_shutdown_function(static function () use ($root): void {
 
 require $root . '/tests/HttpClient.php';
 
-use App\Core\Database;
-use App\Services\CryptoService;
+use app\models\cifradoModel;
+use app\models\mainModel;
 use Tests\HttpClient;
 
 // ---------------------------------------------------------------------
@@ -119,9 +119,16 @@ if ($sonda === false) {
 }
 echo "  Aplicacion alcanzable en {$baseUrl}" . PHP_EOL;
 
-/** @var \App\Core\Container $container */
-$container = require $root . '/app/bootstrap.php';
-$cfg       = \App\Core\Config::get('database');
+// Arranque minimo del lado del proceso de pruebas: la aplicacion la sirve
+// Apache, aqui solo se necesita hablar con la base de datos.
+require_once $root . '/autoload.php';
+require_once $root . '/app/Support/helpers.php';
+\App\Core\Env::load($root . '/.env');
+\App\Core\Config::loadDir($root . '/config');
+date_default_timezone_set((string) \App\Core\Config::get('app.timezone', 'America/Bogota'));
+\App\Core\Logger::setDirectory((string) \App\Core\Config::get('paths.logs'));
+
+$cfg = \App\Core\Config::get('database');
 
 // Se crea con mysqli, como el resto del sistema tras la migracion.
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -132,20 +139,17 @@ $raiz->query('DROP DATABASE IF EXISTS `credenciales_corp_test`');
 $raiz->query('CREATE DATABASE `credenciales_corp_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 $raiz->close();
 
-$db = Database::instance();
 
 // Se aplica el mismo juego de migraciones que en produccion: las pruebas
 // ejercitan el esquema real, no una copia que pueda divergir.
-$migrator = new \App\Support\Migrator($db, $root . '/database/migrations');
+$migrator = new \App\Support\Migrator($root . '/database/migrations');
 $migrator->run();
 
-/** @var CryptoService $crypto */
-$crypto = $container->get(CryptoService::class);
-$crypto->activeKeyVersion();
+cifradoModel::versionClaveActiva();
 
 // Para la mayoria de las pruebas se desactiva el MFA obligatorio; hay una
 // prueba especifica que lo vuelve a activar y verifica que se exija.
-$db->execute("UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.mfa_required_admins'");
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.mfa_required_admins'");
 
 // -------------------------- Datos de prueba ---------------------------
 const PASS_ADMIN     = 'Adm1n#Prueba2026!';
@@ -153,22 +157,22 @@ const PASS_AUDITOR   = 'Aud1t#Prueba2026!';
 const PASS_CONSULTOR = 'Cons#Prueba2026!x';
 const PASS_OTRO      = 'Otro#Prueba2026!y';
 
-$companyId = $db->insert('INSERT INTO companies (name) VALUES (?)', ['Empresa de Pruebas']);
+$companyId = mainModel::ejecutarInsert('INSERT INTO companies (name) VALUES (?)', ['Empresa de Pruebas']);
 $roleIds   = [];
-foreach ($db->select('SELECT id, code FROM roles') as $row) {
+foreach (mainModel::obtenerFilas('SELECT id, code FROM roles') as $row) {
     $roleIds[(string) $row['code']] = (int) $row['id'];
 }
 
 $makeUser = static function (string $nid, string $username, string $email, string $first, string $last,
-                             string $password, string $roleCode) use ($db, $crypto, $companyId, $roleIds): int {
-    $hash = $crypto->hashPassword($password);
-    $id   = $db->insert(
+                             string $password, string $roleCode) use ($companyId, $roleIds): int {
+    $hash = cifradoModel::hashContrasena($password);
+    $id   = mainModel::ejecutarInsert(
         'INSERT INTO users (national_id, username, email, first_name, last_name, company_id,
                             password_hash, password_algo, password_changed_at, must_change_password, status)
          VALUES (?,?,?,?,?,?,?,?,NOW(),0,"active")',
         [$nid, $username, $email, $first, $last, $companyId, $hash['hash'], $hash['algo']]
     );
-    $db->execute('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$id, $roleIds[$roleCode]]);
+    mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$id, $roleIds[$roleCode]]);
     return $id;
 };
 
@@ -177,36 +181,36 @@ $auditorId   = $makeUser('900000002', 'auditor.test', 'auditor@test.local', 'Aud
 $consultorId = $makeUser('900000003', 'juan.test',    'juan@test.local',    'Juan',     'Perez',  PASS_CONSULTOR, 'CONSULTOR');
 $otroId      = $makeUser('900000004', 'ana.test',     'ana@test.local',     'Ana',      'Torres', PASS_OTRO,      'CONSULTOR');
 
-$categoryId = (int) $db->scalar("SELECT id FROM categories WHERE slug = 'sistemas'");
-$systemId   = $db->insert(
+$categoryId = (int) mainModel::obtenerValor("SELECT id FROM categories WHERE slug = 'sistemas'");
+$systemId   = mainModel::ejecutarInsert(
     'INSERT INTO systems (name, category_id, resource_type, company_id, url, status, owner_user_id)
      VALUES (?,?,?,?,?,"active",?)',
     ['Sistema Contable', $categoryId, 'application', $companyId, 'https://contable.test.local', $adminId]
 );
-$systemId2 = $db->insert(
+$systemId2 = mainModel::ejecutarInsert(
     'INSERT INTO systems (name, category_id, resource_type, company_id, status)
      VALUES (?,?,?,?,"active")',
     ['Portal Bancario', $categoryId, 'banking', $companyId]
 );
 
 $makeCredential = static function (int $systemId, string $name, string $username, string $secret)
-                  use ($db, $crypto, $adminId): array {
-    $id = $db->insert(
+                  use ($adminId): array {
+    $id = mainModel::ejecutarInsert(
         'INSERT INTO credentials (system_id, name, username, email, recovery_email, recovery_phone,
                                   status, rotation_period_days, next_rotation_at, password_changed_at,
                                   owner_user_id, created_by)
          VALUES (?,?,?,?,?,?,"active",90, DATE_ADD(CURDATE(), INTERVAL 90 DAY), NOW(), ?, ?)',
         [$systemId, $name, $username, $username . '@test.local', 'recuperacion@test.local', '3001234567', $adminId, $adminId]
     );
-    $env = $crypto->encrypt($secret, $crypto->aad('credential', $id, 'password', 1));
-    $db->execute(
+    $env = cifradoModel::cifrar($secret, cifradoModel::aad('credential', $id, 'password', 1));
+    mainModel::ejecutarConsultaAfectadas(
         'INSERT INTO credential_secrets (credential_id, field, version, is_current, algo, key_version,
                                          ciphertext, nonce, tag, wrapped_dek, dek_nonce, dek_tag,
                                          secret_length, strength_score, fingerprint, created_by)
          VALUES (?,"password",1,1,?,?,?,?,?,?,?,?,?,?,?,?)',
         [$id, $env['algo'], $env['key_version'], $env['ciphertext'], $env['nonce'], $env['tag'],
          $env['wrapped_dek'], $env['dek_nonce'], $env['dek_tag'], strlen($secret), 90,
-         $crypto->fingerprint($secret), $adminId]
+         cifradoModel::huella($secret), $adminId]
     );
     return ['id' => $id, 'secret' => $secret];
 };
@@ -216,16 +220,16 @@ $credB = $makeCredential($systemId,  'Usuario de inventarios',  'inventarios',  
 $credC = $makeCredential($systemId2, 'Usuario de tesoreria',    'tesoreria',    'S3cret0-Tesorer!26');
 
 // Juan ve y copia A; ve B pero NO puede copiarla; no tiene acceso a C.
-$db->execute(
+mainModel::ejecutarConsultaAfectadas(
     'INSERT INTO credential_assignments (credential_id, user_id, can_view_secret, can_copy_secret, can_view_recovery, granted_by)
      VALUES (?,?,1,1,0,?)', [$credA['id'], $consultorId, $adminId]
 );
-$db->execute(
+mainModel::ejecutarConsultaAfectadas(
     'INSERT INTO credential_assignments (credential_id, user_id, can_view_secret, can_copy_secret, can_view_recovery, granted_by)
      VALUES (?,?,1,0,0,?)', [$credB['id'], $consultorId, $adminId]
 );
 
-$clearLimits = static function () use ($db): void { $db->execute('DELETE FROM rate_limits'); };
+$clearLimits = static function (): void { mainModel::ejecutarConsultaAfectadas('DELETE FROM rate_limits'); };
 
 echo "Listo." . PHP_EOL;
 
@@ -247,7 +251,7 @@ $r = $anon->post('/entrar', ['identifier' => 'admin.test', 'password' => 'contra
 $t->assert($r['status'] === 302 && !str_contains($r['headers']['Location'] ?? '', '/entrar?') ,
     'El acceso con contrasena incorrecta no autentica');
 $t->assert($anon->cookie('scgca_session') === null, 'No se emite cookie de sesion tras un intento fallido');
-$attempts = (int) $db->scalar("SELECT COUNT(*) FROM login_attempts WHERE result = 'failed'");
+$attempts = (int) mainModel::obtenerValor("SELECT COUNT(*) FROM login_attempts WHERE result = 'failed'");
 $t->assert($attempts >= 1, 'El intento fallido queda registrado en login_attempts');
 
 $r = $anon->post('/entrar', ['identifier' => 'usuario.que.no.existe', 'password' => 'algo']);
@@ -257,7 +261,7 @@ $clearLimits();
 $admin = new HttpClient('198.51.100.2');
 $r = $admin->login('admin.test', PASS_ADMIN);
 $t->assert($admin->cookie('scgca_session') !== null, 'El acceso valido emite la cookie de sesion');
-$sessionRow = $db->selectOne('SELECT * FROM sessions WHERE id = ?', [hash('sha256', (string) $admin->cookie('scgca_session'))]);
+$sessionRow = mainModel::obtenerFila('SELECT * FROM sessions WHERE id = ?', [hash('sha256', (string) $admin->cookie('scgca_session'))]);
 $t->assert($sessionRow !== null, 'La sesion se persiste en la base de datos');
 $t->assert($sessionRow !== null && strlen((string) $sessionRow['id']) === 64,
     'En la tabla solo se guarda el hash del token de sesion, no el token');
@@ -266,7 +270,7 @@ $r = $admin->get('/');
 $t->status(200, $r, 'El administrador accede al panel de control');
 $t->assert(str_contains($r['body'], 'Panel de control'), 'El panel de control se renderiza');
 
-$loginAudit = (int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'auth.login' AND result = 'success'");
+$loginAudit = (int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'auth.login' AND result = 'success'");
 $t->assert($loginAudit >= 1, 'El inicio de sesion queda auditado');
 
 // Bloqueo por intentos fallidos
@@ -275,12 +279,12 @@ $bruteforce = new HttpClient('198.51.100.3');
 for ($i = 0; $i < 6; $i++) {
     $bruteforce->post('/entrar', ['identifier' => 'ana.test', 'password' => 'clave-mala-' . $i]);
 }
-$locked = $db->selectOne('SELECT locked_until, failed_attempts FROM users WHERE id = ?', [$otroId]);
+$locked = mainModel::obtenerFila('SELECT locked_until, failed_attempts FROM users WHERE id = ?', [$otroId]);
 $t->assert($locked !== null && $locked['locked_until'] !== null,
     'La cuenta se bloquea temporalmente tras superar los intentos permitidos');
-$blockedEvent = (int) $db->scalar("SELECT COUNT(*) FROM security_events WHERE type = 'account_locked'");
+$blockedEvent = (int) mainModel::obtenerValor("SELECT COUNT(*) FROM security_events WHERE type = 'account_locked'");
 $t->assert($blockedEvent >= 1, 'El bloqueo genera un evento de seguridad');
-$db->execute('UPDATE users SET locked_until = NULL, failed_attempts = 0 WHERE id = ?', [$otroId]);
+mainModel::ejecutarConsultaAfectadas('UPDATE users SET locked_until = NULL, failed_attempts = 0 WHERE id = ?', [$otroId]);
 
 // Limitador de frecuencia
 $clearLimits();
@@ -329,7 +333,7 @@ foreach ([
 $r = $juan->get('/credenciales/' . $credC['id']);
 $t->status(404, $r, 'IDOR: el consultor no puede abrir por URL una credencial no asignada');
 
-$r = $juan->postJson('/api/v1/credenciales/' . $credC['id'] . '/secreto', ['field' => 'password']);
+$r = $juan->postJson('/app/api/secretos-api.php?accion=revelar&id=' . $credC['id'], ['field' => 'password']);
 $t->assert(in_array($r['status'], [403, 404], true),
     'IDOR en API: el consultor no puede revelar el secreto de una credencial ajena', 'HTTP ' . $r['status']);
 
@@ -342,10 +346,10 @@ $t->status(403, $r, 'El consultor no puede editar la credencial');
 $r = $juan->post('/usuarios/' . $consultorId, ['first_name' => 'Hacker']);
 $t->status(403, $r, 'El consultor no puede modificar usuarios');
 
-$r = $juan->postJson('/api/v1/credenciales', ['system_id' => $systemId, 'name' => 'Nueva', 'password' => 'Abc#12345678']);
+$r = $juan->postJson('/app/api/credenciales-api.php?accion=agregar', ['system_id' => $systemId, 'name' => 'Nueva', 'password' => 'Abc#12345678']);
 $t->status(403, $r, 'El consultor no puede crear credenciales por la API');
 
-$deniedAudit = (int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'security.access_denied'");
+$deniedAudit = (int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'security.access_denied'");
 $t->assert($deniedAudit >= 5, 'Los intentos de acceso denegado quedan auditados', 'registros: ' . $deniedAudit);
 
 // El auditor: consulta todo pero no ve secretos
@@ -356,7 +360,7 @@ $t->status(200, $r, 'El auditor accede a la auditoria');
 $r = $auditor->get('/credenciales/' . $credC['id']);
 $t->status(200, $r, 'El auditor ve la ficha de cualquier credencial');
 $t->assert(!str_contains($r['body'], $credC['secret']), 'La ficha entregada al auditor no contiene el secreto');
-$r = $auditor->postJson('/api/v1/credenciales/' . $credC['id'] . '/secreto');
+$r = $auditor->postJson('/app/api/secretos-api.php?accion=revelar&id=' . $credC['id']);
 $t->status(403, $r, 'El auditor NO puede revelar contrasenas');
 $r = $auditor->post('/reportes/generar', ['type' => 'full_credentials', 'include_secrets' => '1', 'confirm' => '1']);
 $t->status(403, $r, 'El auditor NO puede exportar contrasenas');
@@ -366,15 +370,15 @@ $t->status(403, $r, 'El auditor NO puede exportar contrasenas');
 // =====================================================================
 $t->group('3. Separacion entre informacion y secreto');
 
-$r = $admin->getJson('/api/v1/credenciales');
-$t->status(200, $r, 'GET /api/v1/credenciales responde correctamente');
+$r = $admin->getJson('/app/api/credenciales-api.php?accion=listar');
+$t->status(200, $r, 'El endpoint de credenciales responde correctamente');
 $body = $r['body'];
 $t->assert(!str_contains($body, $credA['secret']) && !str_contains($body, $credB['secret']) && !str_contains($body, $credC['secret']),
     'El listado de la API NUNCA devuelve contrasenas');
 $t->assert(!preg_match('/"password"\s*:/', $body) === true || !str_contains($body, '"password":"'),
     'El listado no incluye ningun campo password con valor');
 
-$r = $admin->getJson('/api/v1/credenciales/' . $credA['id']);
+$r = $admin->getJson('/app/api/credenciales-api.php?accion=ver&id=' . $credA['id']);
 $t->assert(!str_contains($r['body'], $credA['secret']), 'El detalle de la API tampoco devuelve la contrasena');
 $t->assert(!str_contains($r['body'], 'recuperacion@test.local'),
     'El detalle no expone la informacion de recuperacion sin la peticion especifica');
@@ -384,46 +388,46 @@ $t->assert(!str_contains($r['body'], $credA['secret']), 'La ficha HTML no contie
 $t->assert(str_contains($r['body'], 'data-secret-toggle'), 'La ficha ofrece el boton "Mostrar" controlado');
 
 // Step-up obligatorio
-$r = $admin->postJson('/api/v1/credenciales/' . $credA['id'] . '/secreto');
+$r = $admin->postJson('/app/api/secretos-api.php?accion=revelar&id=' . $credA['id']);
 $t->status(423, $r, 'Revelar un secreto exige reautenticacion (step-up)');
 $t->assert(($r['json']['reauth_required'] ?? false) === true, 'La respuesta indica que se requiere reautenticacion');
 
-$r = $admin->postJson('/api/v1/reauth', ['password' => 'clave-equivocada']);
+$r = $admin->postJson('/app/api/login-api.php?accion=reauth', ['password' => 'clave-equivocada']);
 $t->status(401, $r, 'La reautenticacion con clave incorrecta se rechaza');
 
-$r = $admin->postJson('/api/v1/reauth', ['password' => PASS_ADMIN]);
+$r = $admin->postJson('/app/api/login-api.php?accion=reauth', ['password' => PASS_ADMIN]);
 $t->status(200, $r, 'La reautenticacion con la clave correcta se acepta');
 
-$r = $admin->postJson('/api/v1/credenciales/' . $credA['id'] . '/secreto');
+$r = $admin->postJson('/app/api/secretos-api.php?accion=revelar&id=' . $credA['id']);
 $t->status(200, $r, 'Tras el step-up, el secreto se revela');
-$t->equals($credA['secret'], $r['json']['secret'] ?? null, 'El secreto descifrado coincide con el original');
+$t->equals($credA['secret'], $r['json']['data']['secret'] ?? null, 'El secreto descifrado coincide con el original');
 
-$accessLog = $db->selectOne(
+$accessLog = mainModel::obtenerFila(
     'SELECT * FROM secret_access_log WHERE credential_id = ? ORDER BY id DESC LIMIT 1', [$credA['id']]
 );
 $t->assert($accessLog !== null && (int) $accessLog['user_id'] === $adminId,
     'La consulta del secreto queda registrada con el usuario que la realizo');
 $t->assert($accessLog !== null && $accessLog['ip_address'] === '198.51.100.2',
     'El registro incluye la direccion IP de origen');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'secret.viewed'") >= 1,
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'secret.viewed'") >= 1,
     'La visualizacion del secreto queda en la auditoria general');
 
 // Permisos finos de la asignacion: Juan puede ver B pero no copiarla
-$juan->postJson('/api/v1/reauth', ['password' => PASS_CONSULTOR]);
-$r = $juan->postJson('/api/v1/credenciales/' . $credB['id'] . '/secreto', ['copy' => false]);
+$juan->postJson('/app/api/login-api.php?accion=reauth', ['password' => PASS_CONSULTOR]);
+$r = $juan->postJson('/app/api/secretos-api.php?accion=revelar&id=' . $credB['id'], ['copy' => false]);
 $t->status(200, $r, 'El consultor ve el secreto que su asignacion permite ver');
-$r = $juan->postJson('/api/v1/credenciales/' . $credB['id'] . '/secreto', ['copy' => true]);
+$r = $juan->postJson('/app/api/secretos-api.php?accion=revelar&id=' . $credB['id'], ['copy' => true]);
 $t->status(403, $r, 'El consultor NO puede copiar un secreto cuya asignacion lo prohibe');
 
 // Informacion de recuperacion
-$r = $juan->getJson('/api/v1/credenciales/' . $credA['id'] . '/recuperacion');
+$r = $juan->getJson('/app/api/secretos-api.php?accion=recuperacion&id=' . $credA['id']);
 $t->status(403, $r, 'El consultor sin permiso no obtiene la informacion de recuperacion');
 
-$admin->postJson('/api/v1/reauth', ['password' => PASS_ADMIN]);
-$r = $admin->getJson('/api/v1/credenciales/' . $credA['id'] . '/recuperacion');
+$admin->postJson('/app/api/login-api.php?accion=reauth', ['password' => PASS_ADMIN]);
+$r = $admin->getJson('/app/api/secretos-api.php?accion=recuperacion&id=' . $credA['id']);
 $t->status(200, $r, 'El administrador obtiene la informacion de recuperacion por su endpoint especifico');
-$t->assert(($r['json']['recovery_email'] ?? '') === 'recuperacion@test.local', 'La informacion de recuperacion es correcta');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'recovery.viewed'") >= 1,
+$t->assert(($r['json']['data']['recovery_email'] ?? '') === 'recuperacion@test.local', 'La informacion de recuperacion es correcta');
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'recovery.viewed'") >= 1,
     'La consulta de datos de recuperacion queda auditada');
 
 // =====================================================================
@@ -431,7 +435,7 @@ $t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 're
 // =====================================================================
 $t->group('4. Cifrado de los secretos almacenados');
 
-$row = $db->selectOne('SELECT * FROM credential_secrets WHERE credential_id = ?', [$credA['id']]);
+$row = mainModel::obtenerFila('SELECT * FROM credential_secrets WHERE credential_id = ?', [$credA['id']]);
 $cipher = is_resource($row['ciphertext']) ? stream_get_contents($row['ciphertext']) : (string) $row['ciphertext'];
 $t->assert(!str_contains($cipher, $credA['secret']), 'El criptograma no contiene la contrasena en claro');
 $t->assert($cipher !== $credA['secret'], 'El valor almacenado difiere del texto original');
@@ -439,23 +443,23 @@ $t->assert(strlen((string) $row['nonce']) === 12, 'Se almacena un nonce de 96 bi
 $t->assert(strlen((string) $row['tag']) === 16, 'Se almacena la etiqueta de autenticacion GCM');
 $t->assert(strlen((string) $row['wrapped_dek']) > 0, 'La clave de datos se guarda envuelta, nunca en claro');
 
-$plain = $crypto->decrypt($row, $crypto->aad('credential', (int) $row['credential_id'], 'password', 1));
+$plain = cifradoModel::descifrar($row, cifradoModel::aad('credential', (int) $row['credential_id'], 'password', 1));
 $t->equals($credA['secret'], $plain, 'El descifrado con el AAD correcto recupera el secreto');
 
-$wrong = $crypto->decrypt($row, $crypto->aad('credential', 999999, 'password', 1));
+$wrong = cifradoModel::descifrar($row, cifradoModel::aad('credential', 999999, 'password', 1));
 $t->assert($wrong === null, 'El descifrado con un AAD de otra credencial falla (integridad ligada al contexto)');
 
 $tampered = $row;
 $tampered['ciphertext'] = substr($cipher, 0, -1) . chr((ord(substr($cipher, -1)) + 1) % 256);
-$t->assert($crypto->decrypt($tampered, $crypto->aad('credential', (int) $row['credential_id'], 'password', 1)) === null,
+$t->assert(cifradoModel::descifrar($tampered, cifradoModel::aad('credential', (int) $row['credential_id'], 'password', 1)) === null,
     'Un criptograma manipulado es rechazado por la autenticacion GCM');
 
-$secretA = $crypto->encrypt('mismo-valor', 'aad');
-$secretB = $crypto->encrypt('mismo-valor', 'aad');
+$secretA = cifradoModel::cifrar('mismo-valor', 'aad');
+$secretB = cifradoModel::cifrar('mismo-valor', 'aad');
 $t->assert($secretA['ciphertext'] !== $secretB['ciphertext'],
     'Dos cifrados del mismo valor producen criptogramas distintos (nonce y DEK unicos)');
 
-$userRow = $db->selectOne('SELECT password_hash FROM users WHERE id = ?', [$adminId]);
+$userRow = mainModel::obtenerFila('SELECT password_hash FROM users WHERE id = ?', [$adminId]);
 $t->assert(!str_contains((string) $userRow['password_hash'], PASS_ADMIN),
     'La contrasena de acceso al sistema se guarda como hash irreversible');
 $t->assert(str_starts_with((string) $userRow['password_hash'], '$2y$') || str_starts_with((string) $userRow['password_hash'], '$argon2'),
@@ -474,7 +478,7 @@ $victim->login('admin.test', PASS_ADMIN);
 $victim->setCookie('scgca_csrf', str_repeat('a', 64));
 $r = $victim->request('POST', '/credenciales/' . $credA['id'] . '/eliminar', ['reason' => 'ataque', '_csrf' => str_repeat('b', 64)], false, false);
 $t->status(403, $r, 'Un token CSRF que no corresponde a la sesion es rechazado');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'security.csrf_failed'") >= 1,
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'security.csrf_failed'") >= 1,
     'Los fallos de CSRF quedan auditados como evento critico');
 
 // Inyeccion SQL en los filtros
@@ -483,10 +487,10 @@ foreach ($payloads as $payload) {
     $res = $admin->get('/credenciales', ['q' => $payload]);
     $t->assert($res['status'] === 200, 'Inyeccion SQL neutralizada en el buscador: ' . substr($payload, 0, 22), 'HTTP ' . $res['status']);
 }
-$t->assert((int) $db->scalar('SELECT COUNT(*) FROM users') === 4, 'La tabla users sigue intacta tras los intentos de inyeccion');
+$t->assert((int) mainModel::obtenerValor('SELECT COUNT(*) FROM users') === 4, 'La tabla users sigue intacta tras los intentos de inyeccion');
 
 $res = $admin->get('/credenciales', ['sort' => 'name); DROP TABLE credentials --', 'direction' => 'ASC; DELETE FROM users']);
-$t->assert($res['status'] === 200 && (int) $db->scalar('SELECT COUNT(*) FROM credentials') === 3,
+$t->assert($res['status'] === 200 && (int) mainModel::obtenerValor('SELECT COUNT(*) FROM credentials') === 3,
     'El ordenamiento se valida contra lista blanca (no admite SQL arbitrario)');
 
 // XSS almacenado
@@ -495,7 +499,7 @@ $r = $admin->post('/credenciales', [
     'system_id' => $systemId, 'name' => $xss, 'username' => 'xsstest',
     'password' => 'Xss#Prueba2026abc', 'environment' => 'production',
 ]);
-$xssId = (int) $db->scalar('SELECT id FROM credentials WHERE username = ?', ['xsstest']);
+$xssId = (int) mainModel::obtenerValor('SELECT id FROM credentials WHERE username = ?', ['xsstest']);
 $t->assert($xssId > 0, 'La credencial de prueba XSS se creo');
 $r = $admin->get('/credenciales/' . $xssId);
 $t->assert(!str_contains($r['body'], '<script>alert("xss")</script>'),
@@ -519,31 +523,31 @@ $t->assert(str_contains($r['headers']['Cache-Control'] ?? '', 'no-store'),
 // =====================================================================
 $t->group('6. Ciclo de vida de las credenciales');
 
-$admin->postJson('/api/v1/reauth', ['password' => PASS_ADMIN]);
+$admin->postJson('/app/api/login-api.php?accion=reauth', ['password' => PASS_ADMIN]);
 $nuevoSecreto = 'Rotad0-Nuev0#2026';
 $r = $admin->post('/credenciales/' . $credA['id'] . '/rotar', [
     'password' => $nuevoSecreto, 'reason' => 'Rotacion periodica de prueba',
 ]);
 $t->assert($r['status'] === 302, 'La rotacion de contrasena se ejecuta');
 
-$versions = (int) $db->scalar('SELECT COUNT(*) FROM credential_secrets WHERE credential_id = ?', [$credA['id']]);
+$versions = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM credential_secrets WHERE credential_id = ?', [$credA['id']]);
 $t->equals(2, $versions, 'La contrasena anterior se conserva como version historica');
-$current = $db->selectOne('SELECT * FROM credential_secrets WHERE credential_id = ? AND is_current = 1', [$credA['id']]);
+$current = mainModel::obtenerFila('SELECT * FROM credential_secrets WHERE credential_id = ? AND is_current = 1', [$credA['id']]);
 $t->equals(2, (int) $current['version'], 'La version vigente es la mas reciente');
-$t->equals($nuevoSecreto, $crypto->decrypt($current, $crypto->aad('credential', $credA['id'], 'password', 2)),
+$t->equals($nuevoSecreto, cifradoModel::descifrar($current, cifradoModel::aad('credential', $credA['id'], 'password', 2)),
     'La nueva contrasena se almacena cifrada y se recupera correctamente');
 
-$history = $db->selectOne("SELECT * FROM credential_history WHERE credential_id = ? AND action = 'password_rotated'", [$credA['id']]);
+$history = mainModel::obtenerFila("SELECT * FROM credential_history WHERE credential_id = ? AND action = 'password_rotated'", [$credA['id']]);
 $t->assert($history !== null && $history['reason'] === 'Rotacion periodica de prueba',
     'El historial registra el motivo del cambio');
 $t->assert($history !== null && (int) $history['performed_by'] === $adminId,
     'El historial registra quien realizo el cambio');
 
-$rotatedRow = $db->selectOne('SELECT password_changed_at, next_rotation_at FROM credentials WHERE id = ?', [$credA['id']]);
+$rotatedRow = mainModel::obtenerFila('SELECT password_changed_at, next_rotation_at FROM credentials WHERE id = ?', [$credA['id']]);
 $t->assert($rotatedRow['password_changed_at'] !== null && $rotatedRow['next_rotation_at'] !== null,
     'Se actualizan la fecha de rotacion y la proxima fecha recomendada');
 
-$historyDump = $db->select('SELECT old_value, new_value, metadata FROM credential_history WHERE credential_id = ?', [$credA['id']]);
+$historyDump = mainModel::obtenerFilas('SELECT old_value, new_value, metadata FROM credential_history WHERE credential_id = ?', [$credA['id']]);
 $leak = false;
 foreach ($historyDump as $h) {
     foreach ($h as $value) {
@@ -555,17 +559,17 @@ foreach ($historyDump as $h) {
 $t->assert(!$leak, 'El historial NO almacena contrasenas en claro');
 
 $r = $admin->post('/credenciales/' . $credA['id'] . '/rotar', ['password' => $nuevoSecreto, 'reason' => 'repetida']);
-$t->assert((int) $db->scalar('SELECT COUNT(*) FROM credential_secrets WHERE credential_id = ?', [$credA['id']]) === 2,
+$t->assert((int) mainModel::obtenerValor('SELECT COUNT(*) FROM credential_secrets WHERE credential_id = ?', [$credA['id']]) === 2,
     'No se admite repetir la contrasena vigente (deteccion por huella, sin descifrar)');
 
 // Historico: exige permiso especifico
-$r = $admin->postJson('/api/v1/credenciales/' . $credA['id'] . '/secreto/historial/1');
+$r = $admin->postJson('/app/api/secretos-api.php?accion=historico&version=1&id=' . $credA['id']);
 $t->status(200, $r, 'Con el permiso adecuado se puede consultar una contrasena historica');
-$t->equals($credA['secret'], $r['json']['secret'] ?? null, 'La contrasena historica se recupera correctamente');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM secret_access_log WHERE access_type = 'history_view'") >= 1,
+$t->equals($credA['secret'], $r['json']['data']['secret'] ?? null, 'La contrasena historica se recupera correctamente');
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM secret_access_log WHERE access_type = 'history_view'") >= 1,
     'La consulta de una contrasena historica queda registrada');
 
-$r = $juan->postJson('/api/v1/credenciales/' . $credA['id'] . '/secreto/historial/1');
+$r = $juan->postJson('/app/api/secretos-api.php?accion=historico&version=1&id=' . $credA['id']);
 $t->status(403, $r, 'El consultor no puede acceder a contrasenas historicas');
 
 // Asignacion y revocacion
@@ -591,16 +595,16 @@ $r = $admin->post('/usuarios/' . $consultorId . '/desactivar', [
 ]);
 $t->assert($r['status'] === 302, 'El administrador desactiva al usuario');
 
-$userRow = $db->selectOne('SELECT status, deactivated_at, deactivation_reason FROM users WHERE id = ?', [$consultorId]);
+$userRow = mainModel::obtenerFila('SELECT status, deactivated_at, deactivation_reason FROM users WHERE id = ?', [$consultorId]);
 $t->equals('inactive', $userRow['status'], 'El usuario queda inactivo');
 $t->assert($userRow['deactivation_reason'] === 'Retiro del empleado (prueba)', 'Se conserva el motivo de la baja');
 
-$active = (int) $db->scalar('SELECT COUNT(*) FROM credential_assignments WHERE user_id = ? AND is_active = 1', [$consultorId]);
+$active = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM credential_assignments WHERE user_id = ? AND is_active = 1', [$consultorId]);
 $t->equals(0, $active, 'Se revocan automaticamente todos sus accesos');
-$historic = (int) $db->scalar('SELECT COUNT(*) FROM credential_assignments WHERE user_id = ?', [$consultorId]);
+$historic = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM credential_assignments WHERE user_id = ?', [$consultorId]);
 $t->assert($historic > 0, 'El historico de asignaciones se conserva (no se borra informacion)');
 
-$openSessions = (int) $db->scalar("SELECT COUNT(*) FROM sessions WHERE user_id = ? AND status = 'active'", [$consultorId]);
+$openSessions = (int) mainModel::obtenerValor("SELECT COUNT(*) FROM sessions WHERE user_id = ? AND status = 'active'", [$consultorId]);
 $t->equals(0, $openSessions, 'Se cierran sus sesiones abiertas');
 
 $r = $juan->get('/mis-accesos');
@@ -611,7 +615,7 @@ $exJuan = new HttpClient('198.51.100.8');
 $r = $exJuan->login('juan.test', PASS_CONSULTOR);
 $t->assert($exJuan->cookie('scgca_session') === null, 'El usuario inactivo no puede volver a iniciar sesion');
 
-$auditEntry = $db->selectOne("SELECT details FROM audit_logs WHERE action = 'user.deactivated' ORDER BY id DESC LIMIT 1");
+$auditEntry = mainModel::obtenerFila("SELECT details FROM audit_logs WHERE action = 'user.deactivated' ORDER BY id DESC LIMIT 1");
 $t->assert($auditEntry !== null && str_contains((string) $auditEntry['details'], 'accesos_revocados'),
     'La baja queda auditada con el detalle de los accesos revocados');
 
@@ -634,11 +638,11 @@ $r = $admin->post('/sesiones/' . $sessionId . '/cerrar', ['reason' => 'Prueba de
 $t->assert($r['status'] === 302, 'El administrador cierra remotamente una sesion');
 $r = $otro->get('/mis-accesos');
 $t->assert($r['status'] === 302, 'La sesion cerrada remotamente deja de ser valida de inmediato');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'session.revoked'") >= 1,
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'session.revoked'") >= 1,
     'El cierre remoto queda auditado');
 
-$r = $admin->getJson('/api/v1/sesion');
-$t->assert(($r['json']['authenticated'] ?? false) === true, 'El endpoint de estado de sesion responde correctamente');
+$r = $admin->getJson('/app/api/login-api.php?accion=estado');
+$t->assert(($r['json']['data']['authenticated'] ?? false) === true, 'El endpoint de estado de sesion responde correctamente');
 $t->assert(!str_contains($r['body'], 'password'), 'El estado de sesion no expone datos sensibles');
 
 // =====================================================================
@@ -648,7 +652,7 @@ $t->group('9. Reportes y exportacion a Excel');
 
 $r = $admin->post('/reportes/generar', ['type' => 'inventory']);
 $t->assert($r['status'] === 302, 'Se genera el reporte de inventario');
-$report = $db->selectOne("SELECT * FROM export_reports WHERE report_type = 'inventory' ORDER BY id DESC LIMIT 1");
+$report = mainModel::obtenerFila("SELECT * FROM export_reports WHERE report_type = 'inventory' ORDER BY id DESC LIMIT 1");
 $t->assert($report !== null, 'La exportacion queda registrada en export_reports');
 $t->equals(0, (int) $report['included_secrets'], 'El inventario NO incluye contrasenas');
 $t->assert((int) $report['record_count'] > 0, 'El reporte contiene registros');
@@ -674,20 +678,20 @@ $t->assert(!str_contains($sheet, $nuevoSecreto) && !str_contains($sheet, $credC[
 $r = $admin->post('/reportes/generar', ['type' => 'full_credentials', 'include_secrets' => '1']);
 $t->assert($r['status'] === 302 || $r['status'] === 422,
     'Sin confirmacion explicita no se genera un archivo con contrasenas');
-$withSecrets = (int) $db->scalar("SELECT COUNT(*) FROM export_reports WHERE included_secrets = 1 AND status = 'ready'");
+$withSecrets = (int) mainModel::obtenerValor("SELECT COUNT(*) FROM export_reports WHERE included_secrets = 1 AND status = 'ready'");
 $t->equals(0, $withSecrets, 'No se creo ningun archivo con contrasenas sin confirmar la advertencia');
 
-$admin->postJson('/api/v1/reauth', ['password' => PASS_ADMIN]);
+$admin->postJson('/app/api/login-api.php?accion=reauth', ['password' => PASS_ADMIN]);
 $r = $admin->post('/reportes/generar', ['type' => 'full_credentials', 'include_secrets' => '1', 'confirm' => '1']);
 $t->assert($r['status'] === 302, 'Con permiso, confirmacion y step-up se genera el archivo con contrasenas');
 
-$secretReport = $db->selectOne("SELECT * FROM export_reports WHERE included_secrets = 1 ORDER BY id DESC LIMIT 1");
+$secretReport = mainModel::obtenerFila("SELECT * FROM export_reports WHERE included_secrets = 1 ORDER BY id DESC LIMIT 1");
 $t->assert($secretReport !== null && $secretReport['status'] === 'ready', 'El reporte confidencial se genero');
-$t->assert((int) $db->scalar('SELECT COUNT(*) FROM export_report_items WHERE report_id = ?', [(int) $secretReport['id']]) > 0,
+$t->assert((int) mainModel::obtenerValor('SELECT COUNT(*) FROM export_report_items WHERE report_id = ?', [(int) $secretReport['id']]) > 0,
     'Se registra que credenciales concretas viajaron en el archivo');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM secret_access_log WHERE access_type = 'export'") > 0,
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM secret_access_log WHERE access_type = 'export'") > 0,
     'Cada secreto exportado deja su registro individual de acceso');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM security_events WHERE type = 'export_with_secrets'") >= 1,
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM security_events WHERE type = 'export_with_secrets'") >= 1,
     'La exportacion con contrasenas genera un evento de seguridad');
 
 // Descarga: solo el autor, y el archivo se elimina.
@@ -699,7 +703,7 @@ $clearLimits();
 $intruder->login('auditor.test', PASS_AUDITOR);
 $r = $intruder->get('/reportes/descargar/' . $secretReport['uuid']);
 $t->status(404, $r, 'Otro usuario no puede descargar un reporte ajeno');
-$t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'export.denied'") >= 1,
+$t->assert((int) mainModel::obtenerValor("SELECT COUNT(*) FROM audit_logs WHERE action = 'export.denied'") >= 1,
     'El intento de descarga ajena queda auditado');
 
 $r = $admin->get('/reportes/descargar/' . $secretReport['uuid']);
@@ -740,11 +744,11 @@ $expected = ['auth.login', 'auth.login_failed', 'secret.viewed', 'credential.pas
              'credential.assigned', 'credential.revoked', 'user.deactivated', 'export.generated',
              'export.downloaded', 'session.revoked', 'security.access_denied'];
 foreach ($expected as $action) {
-    $count = (int) $db->scalar('SELECT COUNT(*) FROM audit_logs WHERE action = ?', [$action]);
+    $count = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM audit_logs WHERE action = ?', [$action]);
     $t->assert($count > 0, 'Se audita la accion: ' . $action, 'registros: ' . $count);
 }
 
-$columns = $db->selectOne('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 1');
+$columns = mainModel::obtenerFila('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 1');
 foreach (['user_id', 'actor_national_id', 'action', 'result', 'ip_address', 'device', 'occurred_at'] as $column) {
     $t->assert(array_key_exists($column, $columns), 'El registro de auditoria incluye ' . $column);
 }
@@ -753,7 +757,7 @@ foreach (['user_id', 'actor_national_id', 'action', 'result', 'ip_address', 'dev
 $allSecrets = [$credA['secret'], $credB['secret'], $credC['secret'], $nuevoSecreto,
                PASS_ADMIN, PASS_AUDITOR, PASS_CONSULTOR, PASS_OTRO];
 $leaks = [];
-foreach ($db->select('SELECT details, entity_label FROM audit_logs') as $auditRow) {
+foreach (mainModel::obtenerFilas('SELECT details, entity_label FROM audit_logs') as $auditRow) {
     foreach ($allSecrets as $secret) {
         if (str_contains((string) $auditRow['details'], $secret) || str_contains((string) $auditRow['entity_label'], $secret)) {
             $leaks[] = $secret;
@@ -772,7 +776,7 @@ foreach (glob($logDir . '/*.log') ?: [] as $logFile) {
 }
 $t->assert(!$logLeak, 'NINGUNA contrasena aparece en los archivos de log');
 
-foreach ($db->select('SELECT identifier, reason FROM login_attempts') as $attempt) {
+foreach (mainModel::obtenerFilas('SELECT identifier, reason FROM login_attempts') as $attempt) {
     foreach ($allSecrets as $secret) {
         if (str_contains((string) $attempt['identifier'], $secret)) { $logLeak = true; }
     }
@@ -780,9 +784,9 @@ foreach ($db->select('SELECT identifier, reason FROM login_attempts') as $attemp
 $t->assert(!$logLeak, 'La tabla de intentos de acceso no almacena contrasenas');
 
 // Trazabilidad completa sobre una credencial
-$traza = $db->select('SELECT access_type, user_id FROM secret_access_log WHERE credential_id = ?', [$credA['id']]);
+$traza = mainModel::obtenerFilas('SELECT access_type, user_id FROM secret_access_log WHERE credential_id = ?', [$credA['id']]);
 $t->assert(count($traza) >= 2, 'Se puede responder "quien consulto esta contrasena y cuando"');
-$exportTrace = $db->select(
+$exportTrace = mainModel::obtenerFilas(
     'SELECT er.uuid FROM export_report_items eri JOIN export_reports er ON er.id = eri.report_id WHERE eri.credential_id = ?',
     [$credA['id']]
 );
@@ -797,54 +801,54 @@ $r = $admin->post('/perfil/contrasena', [
     'current_password' => PASS_ADMIN, 'password' => 'corta', 'password_confirmation' => 'corta',
 ]);
 $t->assert($r['status'] === 302, 'Una contrasena demasiado corta se rechaza');
-$t->assert($crypto->verifyPassword(PASS_ADMIN, (string) $db->scalar('SELECT password_hash FROM users WHERE id = ?', [$adminId])),
+$t->assert(cifradoModel::verificarContrasena(PASS_ADMIN, (string) mainModel::obtenerValor('SELECT password_hash FROM users WHERE id = ?', [$adminId])),
     'La contrasena no cambia cuando incumple la politica');
 
 $r = $admin->post('/perfil/contrasena', [
     'current_password' => PASS_ADMIN, 'password' => 'admintestadmintest1', 'password_confirmation' => 'admintestadmintest1',
 ]);
-$t->assert($crypto->verifyPassword(PASS_ADMIN, (string) $db->scalar('SELECT password_hash FROM users WHERE id = ?', [$adminId])),
+$t->assert(cifradoModel::verificarContrasena(PASS_ADMIN, (string) mainModel::obtenerValor('SELECT password_hash FROM users WHERE id = ?', [$adminId])),
     'Se rechaza una contrasena que contiene datos personales del usuario');
 
-$r = $admin->postJson('/api/v1/generador', ['length' => 24, 'symbols' => true, 'exclude_ambiguous' => true]);
+$r = $admin->postJson('/app/api/utilidades-api.php?accion=generar', ['length' => 24, 'symbols' => true, 'exclude_ambiguous' => true]);
 $t->status(200, $r, 'El generador de contrasenas responde');
-$generated = (string) ($r['json']['password'] ?? '');
+$generated = (string) ($r['json']['data']['password'] ?? '');
 $t->equals(24, strlen($generated), 'El generador respeta la longitud solicitada');
 $t->assert(preg_match('/[A-Z]/', $generated) === 1 && preg_match('/[a-z]/', $generated) === 1
     && preg_match('/\d/', $generated) === 1 && preg_match('/[^a-zA-Z0-9]/', $generated) === 1,
     'La contrasena generada combina todos los conjuntos solicitados');
-$second = $admin->postJson('/api/v1/generador', ['length' => 24]);
-$t->assert($generated !== ($second['json']['password'] ?? ''), 'Cada generacion produce un valor distinto');
+$second = $admin->postJson('/app/api/utilidades-api.php?accion=generar', ['length' => 24]);
+$t->assert($generated !== ($second['json']['data']['password'] ?? ''), 'Cada generacion produce un valor distinto');
 
 // Escalada de privilegios
 $r = $admin->post('/usuarios/' . $adminId, [
     'national_id' => '900000001', 'username' => 'admin.test', 'email' => 'admin@test.local',
     'first_name' => 'Admin', 'last_name' => 'Prueba', 'roles' => [(string) $roleIds['SUPERADMIN']],
 ]);
-$stillAdmin = (int) $db->scalar(
+$stillAdmin = (int) mainModel::obtenerValor(
     'SELECT COUNT(*) FROM user_roles WHERE user_id = ? AND role_id = ?', [$adminId, $roleIds['SUPERADMIN']]
 );
 $t->equals(0, $stillAdmin, 'Un administrador no puede auto-asignarse el rol de superadministrador');
 
 $r = $admin->post('/usuarios/' . $auditorId . '/permisos', ['allow' => ['settings.manage']]);
-$granted = (int) $db->scalar(
+$granted = (int) mainModel::obtenerValor(
     "SELECT COUNT(*) FROM user_permissions up JOIN permissions p ON p.id = up.permission_id
       WHERE up.user_id = ? AND p.code = 'settings.manage' AND up.effect = 'allow'", [$auditorId]
 );
 $t->equals(0, $granted, 'Nadie puede conceder un permiso que el mismo no posee');
 
 // MFA obligatorio para administradores
-$db->execute("UPDATE settings SET setting_value = '1' WHERE setting_key = 'security.mfa_required_admins'");
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '1' WHERE setting_key = 'security.mfa_required_admins'");
 $clearLimits();
 $mfaClient = new HttpClient('198.51.100.11');
 $mfaClient->login('admin.test', PASS_ADMIN);
 $r = $mfaClient->get('/credenciales');
 $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/perfil/mfa'),
     'Con MFA obligatorio, el administrador sin segundo factor solo puede ir a configurarlo');
-$db->execute("UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.mfa_required_admins'");
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.mfa_required_admins'");
 
 // TOTP
-$totp   = $container->get(\App\Services\TotpService::class);
+$totp   = new \app\models\totpModel();
 $secret = $totp->generateSecret();
 $code   = $totp->codeAt($secret, (int) floor(time() / 30));
 $t->assert($totp->verify($secret, $code), 'La verificacion TOTP acepta un codigo valido');
@@ -884,22 +888,22 @@ $t->assert($r['status'] === 302, 'Tras cerrar sesion la cookie deja de dar acces
 // =====================================================================
 $t->group('12. Alertas y deteccion');
 
-$db->execute('UPDATE credentials SET expires_at = DATE_SUB(CURDATE(), INTERVAL 5 DAY) WHERE id = ?', [$credB['id']]);
-$db->execute('UPDATE credentials SET owner_user_id = NULL WHERE id = ?', [$credC['id']]);
+mainModel::ejecutarConsultaAfectadas('UPDATE credentials SET expires_at = DATE_SUB(CURDATE(), INTERVAL 5 DAY) WHERE id = ?', [$credB['id']]);
+mainModel::ejecutarConsultaAfectadas('UPDATE credentials SET owner_user_id = NULL WHERE id = ?', [$credC['id']]);
 
-$alerts = $container->get(\App\Services\AlertService::class)->evaluate();
+$alerts = \app\models\alertaModel::evaluate();
 $types  = array_column($alerts, 'type');
 $t->assert(in_array('credential_expired', $types, true), 'Se detectan credenciales vencidas');
 $t->assert(in_array('without_owner', $types, true), 'Se detectan credenciales sin responsable');
 $t->assert(in_array('inactive_with_access', $types, true) || true, 'Se evaluan usuarios inactivos con accesos');
 $t->assert(in_array('failed_logins', $types, true), 'Se detecta el exceso de intentos de acceso fallidos');
 
-$dispatched = $container->get(\App\Services\AlertService::class)->dispatch();
+$dispatched = \app\models\alertaModel::dispatch();
 $t->assert($dispatched > 0, 'Las alertas se despachan como notificaciones');
-$t->assert((int) $db->scalar('SELECT COUNT(*) FROM notifications') > 0, 'Las notificaciones se persisten');
-$before = (int) $db->scalar('SELECT COUNT(*) FROM notifications');
-$container->get(\App\Services\AlertService::class)->dispatch();
-$t->equals($before, (int) $db->scalar('SELECT COUNT(*) FROM notifications'),
+$t->assert((int) mainModel::obtenerValor('SELECT COUNT(*) FROM notifications') > 0, 'Las notificaciones se persisten');
+$before = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM notifications');
+\app\models\alertaModel::dispatch();
+$t->equals($before, (int) mainModel::obtenerValor('SELECT COUNT(*) FROM notifications'),
     'Las alertas no se duplican en el mismo dia (deduplicacion)');
 
 // =====================================================================
@@ -908,7 +912,7 @@ $t->equals($before, (int) $db->scalar('SELECT COUNT(*) FROM notifications'),
 $t->group('13. Controles adicionales verificados en la revision');
 
 // El permiso EXPORTAR_REPORTES es exigible de forma independiente.
-$db->execute(
+mainModel::ejecutarConsultaAfectadas(
     "INSERT INTO user_permissions (user_id, permission_id, effect, reason)
      SELECT ?, id, 'deny', 'prueba' FROM permissions WHERE code = 'export.reports'",
     [$auditorId]
@@ -918,7 +922,7 @@ $auditorSinExport = new HttpClient('198.51.100.12');
 $auditorSinExport->login('auditor.test', PASS_AUDITOR);
 $r = $auditorSinExport->post('/reportes/generar', ['type' => 'inventory']);
 $t->status(403, $r, 'Sin el permiso EXPORTAR_REPORTES no se genera ningun reporte');
-$db->execute('DELETE FROM user_permissions WHERE user_id = ?', [$auditorId]);
+mainModel::ejecutarConsultaAfectadas('DELETE FROM user_permissions WHERE user_id = ?', [$auditorId]);
 
 // El auditor SI puede exportar el inventario (sin contrasenas).
 $clearLimits();
@@ -928,16 +932,16 @@ $r = $auditorOk->post('/reportes/generar', ['type' => 'inventory']);
 $t->assert($r['status'] === 302, 'El auditor si puede exportar el inventario sin contrasenas');
 
 // Caducidad de la contrasena de acceso.
-$db->execute("UPDATE settings SET setting_value = '30' WHERE setting_key = 'security.password_expiry_days'");
-$db->execute('UPDATE users SET password_changed_at = DATE_SUB(NOW(), INTERVAL 100 DAY) WHERE id = ?', [$auditorId]);
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '30' WHERE setting_key = 'security.password_expiry_days'");
+mainModel::ejecutarConsultaAfectadas('UPDATE users SET password_changed_at = DATE_SUB(NOW(), INTERVAL 100 DAY) WHERE id = ?', [$auditorId]);
 $clearLimits();
 $caducado = new HttpClient('198.51.100.14');
 $caducado->login('auditor.test', PASS_AUDITOR);
 $r = $caducado->get('/auditoria');
 $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/perfil/contrasena'),
     'Una contrasena de acceso caducada obliga a cambiarla antes de continuar');
-$db->execute('UPDATE users SET password_changed_at = NOW() WHERE id = ?', [$auditorId]);
-$db->execute("UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.password_expiry_days'");
+mainModel::ejecutarConsultaAfectadas('UPDATE users SET password_changed_at = NOW() WHERE id = ?', [$auditorId]);
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.password_expiry_days'");
 
 // La cabecera Host no puede usarse para eludir la comprobacion de origen.
 $clearLimits();
@@ -952,10 +956,10 @@ $t->assert(in_array($r['status'], [302, 403], true),
 $clearLimits();
 $gen = new HttpClient('198.51.100.16');
 $gen->login('admin.test', PASS_ADMIN);
-$r = $gen->postJson('/api/v1/generador', ['length' => 28]);
-$generada = (string) ($r['json']['password'] ?? '');
+$r = $gen->postJson('/app/api/utilidades-api.php?accion=generar', ['length' => 28]);
+$generada = (string) ($r['json']['data']['password'] ?? '');
 $t->assert($generada !== '', 'El generador produce una contrasena');
-$rastro = (int) $db->scalar(
+$rastro = (int) mainModel::obtenerValor(
     'SELECT COUNT(*) FROM audit_logs WHERE details LIKE ?', ['%' . $generada . '%']
 );
 $t->equals(0, $rastro, 'La contrasena generada no queda registrada en la auditoria');
@@ -969,7 +973,7 @@ touch($huerfano, time() - 7200);
 $reciente = $exportDir . '/00000000-0000-4000-8000-recienteprueba.xlsx';
 file_put_contents($reciente, 'archivo recien generado');
 
-$purgados = $container->get(\App\Services\ExportService::class)->purgeOrphanFiles();
+$purgados = \app\models\exportacionModel::purgeOrphanFiles();
 $t->assert(!is_file($huerfano),
     'El mantenimiento elimina archivos exportados huerfanos (sin registro en base de datos)');
 $t->assert(is_file($reciente),
@@ -1075,14 +1079,14 @@ $j = $sobre($r);
 $nuevaCategoria = (int) ($j['data']['id'] ?? 0);
 $t->assert($r['status'] === 200 && $nuevaCategoria > 0,
     'Una escritura con token valido crea el registro', 'HTTP ' . $r['status']);
-$t->assert((int) $db->scalar('SELECT COUNT(*) FROM audit_logs WHERE action = ? AND entity_id = ?',
+$t->assert((int) mainModel::obtenerValor('SELECT COUNT(*) FROM audit_logs WHERE action = ? AND entity_id = ?',
     ['category.managed', (string) $nuevaCategoria]) === 1,
     'La escritura por endpoint queda registrada en la auditoria');
 
 // El color se normaliza: no llega a la vista lo que el cliente envie.
 $r = $api->postJson('/app/api/catalogos-api.php?accion=guardar-categoria',
     ['name' => 'Categoria con color invalido', 'color' => '#zzzzzz']);
-$colorGuardado = (string) $db->scalar('SELECT color FROM categories WHERE id = ?',
+$colorGuardado = (string) mainModel::obtenerValor('SELECT color FROM categories WHERE id = ?',
     [(int) ($sobre($r)['data']['id'] ?? 0)]);
 $t->assert(preg_match('/^#[0-9a-f]{6}$/i', $colorGuardado) === 1,
     'Un color con carga XSS se sustituye por el valor por defecto', $colorGuardado);
@@ -1108,7 +1112,7 @@ foreach ([
 
 // Nadie puede otorgar a un rol un permiso que el mismo no posee.
 $clearLimits();
-$rolAuditor = (int) $db->scalar("SELECT id FROM roles WHERE code = 'AUDITOR'");
+$rolAuditor = (int) mainModel::obtenerValor("SELECT id FROM roles WHERE code = 'AUDITOR'");
 $r = $apiConsultor->postJson('/app/api/catalogos-api.php?accion=permisos-rol&id=' . $rolAuditor,
     ['permissions' => ['credentials.reveal', 'users.create']]);
 $t->assert($r['status'] === 403, 'El consultor no puede reescribir la matriz de permisos de un rol',

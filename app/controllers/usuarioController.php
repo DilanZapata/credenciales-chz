@@ -35,6 +35,9 @@ class usuarioController extends baseController
     public static function agregarController(array $variables): array
     {
         return self::responder(static function () use ($variables): array {
+            // La autorizacion se comprueba ANTES de validar: a quien no puede
+            // crear usuarios no se le detalla que campos faltan.
+            \app\models\permisoModel::exigir('users.create');
             $r = usuarioModel::create(self::validar($variables), self::listaEnteros($variables, 'roles'));
             // La contrasena temporal se devuelve UNA sola vez, para entregarla
             // por un canal seguro. No queda almacenada en claro en ningun sitio.
@@ -45,6 +48,7 @@ class usuarioController extends baseController
     public static function actualizarController(int $id, array $variables): array
     {
         return self::responder(static function () use ($id, $variables): array {
+            \app\models\permisoModel::exigir('users.update', 'user', $id);
             $roles = self::listaEnteros($variables, 'roles');
             usuarioModel::update($id, self::validar($variables), $roles === [] ? null : $roles);
             return ['id' => $id];

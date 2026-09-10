@@ -8,17 +8,16 @@ declare(strict_types=1);
  *
  *  El .htaccess reescribe  /credenciales/12  ->  index.php?views=credenciales/12
  *
- *  Reparto de responsabilidades, igual que en la referencia:
+ *  Reparto de responsabilidades:
  *
- *    index.php          dibuja las paginas (GET)
- *    app/api/*-api.php  atiende las operaciones (JSON)
+ *    index.php            dibuja las paginas (GET)
+ *    despachoController   atiende los envios de formulario (POST)
+ *    app/api/*-api.php    atiende las operaciones por fetch (JSON)
  *
- *  Las escrituras que aun llegan por formulario clasico (POST a
- *  /credenciales/12, /usuarios, /salir…) se delegan al enrutador
- *  existente. Es deliberado: mover esos formularios a los endpoints
- *  cambiaria el comportamiento del front end, y la instruccion es que
- *  siga funcionando igual. Es el ultimo resto de la arquitectura
- *  anterior y desaparece cuando los formularios pasen a fetch.
+ *  Los tres frentes comparten controladores y modelos: ninguna regla de
+ *  negocio vive aqui. La referencia solo tiene los dos primeros porque
+ *  todas sus operaciones van por fetch; este sistema conserva ademas el
+ *  envio de formulario clasico para seguir funcionando sin JavaScript.
  */
 
 require_once __DIR__ . '/app/views/inc/session_start.php';
@@ -28,6 +27,7 @@ use App\Core\Flash;
 use App\Core\HttpException;
 use App\Core\Logger;
 use App\Core\View;
+use app\controllers\despachoController;
 use app\controllers\viewsController;
 use app\middlewares\accesoMiddleware;
 use app\models\contextoModel;
@@ -45,11 +45,17 @@ $metodo         = contextoModel::metodo();
 $vistaInfo = viewsController::obtenerVistasControlador($rutaSolicitada);
 
 // ---------------------------------------------------------------------
-//  Lo que no es una pagina sigue por el enrutador anterior
+//  Envios de formulario
 // ---------------------------------------------------------------------
-if ($metodo !== 'GET' || !$vistaInfo['encontrada']) {
-    require __DIR__ . '/app/legacy.php';
-    return;
+if ($metodo === 'POST') {
+    despachoController::despachar($rutaSolicitada, $_POST, $_FILES);
+}
+
+// ---------------------------------------------------------------------
+//  Descargas
+// ---------------------------------------------------------------------
+if ($metodo === 'GET' && !$vistaInfo['encontrada']) {
+    require __DIR__ . '/app/descargas.php';
 }
 
 Flash::cargarDeCookie();
@@ -74,7 +80,13 @@ extract(View::sharedData(), EXTR_SKIP);
 $parametrosVista = $vistaInfo['parametros'];
 $vista           = $vistaInfo['ruta'];
 $pageTitle       = null;
-$estadoHttp      = 200;
+$estadoHttp      = $vistaInfo['encontrada'] ? 200 : 404;
+
+if (!$vistaInfo['encontrada']) {
+    $errorEstado  = 404;
+    $errorTitulo  = 'Pagina no encontrada';
+    $errorMensaje = 'La direccion solicitada no existe.';
+}
 
 ob_start();
 try {

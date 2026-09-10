@@ -23,17 +23,16 @@ if (PHP_SAPI !== 'cli') {
 $root = dirname(__DIR__);
 
 use App\Core\Config;
-use App\Core\Database;
 use App\Core\Env;
-use App\Repositories\UserRepository;
 use App\Support\Migrator;
-use App\Services\AlertService;
-use App\Services\AuthContext;
-use App\Services\CryptoService;
-use App\Services\ExportService;
-use App\Services\PasswordGeneratorService;
-use App\Services\RateLimiter;
-use App\Services\SessionService;
+use app\models\alertaModel;
+use app\models\cifradoModel;
+use app\models\exportacionModel;
+use app\models\generadorModel;
+use app\models\limitadorModel;
+use app\models\mainModel;
+use app\models\sesionModel;
+use app\models\usuarioModel;
 
 function out(string $message = ''): void   { echo $message . PHP_EOL; }
 function ok(string $message): void         { echo "\033[32m✔\033[0m " . $message . PHP_EOL; }
@@ -97,8 +96,17 @@ if ($command === 'key:generate') {
     exit(0);
 }
 
-/** @var \App\Core\Container $container */
-$container = require $root . '/app/bootstrap.php';
+// Arranque comun: autocarga, entorno y configuracion. La consola no
+// necesita contexto de peticion ni cabeceras HTTP.
+require_once $root . '/autoload.php';
+require_once $root . '/app/Support/helpers.php';
+
+Env::load($root . '/.env');
+Config::loadDir($root . '/config');
+date_default_timezone_set((string) Config::get('app.timezone', 'America/Bogota'));
+mb_internal_encoding('UTF-8');
+\App\Core\Logger::setDirectory((string) Config::get('paths.logs'));
+\App\Core\View::setPath((string) Config::get('paths.views'));
 
 // --------------------------------------------------------------------
 //  install / migrate
@@ -132,8 +140,7 @@ if ($command === 'install' || $command === 'migrate') {
     $raiz->close();
     ok('Base de datos `' . $database . '` disponible.');
 
-    $db       = Database::instance();
-    $migrator = new Migrator($db, $root . '/database/migrations');
+    $migrator = new Migrator($root . '/database/migrations');
 
     $drift = $migrator->drifted();
     if ($drift !== []) {
@@ -156,9 +163,7 @@ if ($command === 'install' || $command === 'migrate') {
         }
     }
 
-    /** @var CryptoService $crypto */
-    $crypto = $container->get(CryptoService::class);
-    $version = $crypto->activeKeyVersion();
+    $version = cifradoModel::versionClaveActiva();
     ok('Llavero de cifrado activo, version ' . $version . '.');
 
     if ($command === 'migrate') {
@@ -167,7 +172,7 @@ if ($command === 'install' || $command === 'migrate') {
     }
 
     // ---------------- Superadministrador ----------------
-    $existing = (int) $db->scalar('SELECT COUNT(*) FROM users');
+    $existing = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM users');
     if ($existing > 0) {
         warn('Ya existen usuarios. No se crea el superadministrador.');
         ok('Instalacion completada.');
@@ -182,23 +187,21 @@ if ($command === 'install' || $command === 'migrate') {
     $username   = ask('Nombre de usuario', 'admin');
     $company    = ask('Nombre de la empresa', (string) Config::get('app.organization', 'Mi Empresa'));
 
-    /** @var PasswordGeneratorService $generator */
-    $generator = $container->get(PasswordGeneratorService::class);
-    $password  = $generator->generate(['length' => 20, 'exclude_ambiguous' => true]);
+    $password  = generadorModel::generate(['length' => 20, 'exclude_ambiguous' => true]);
 
-    $companyId = $db->insert('INSERT INTO companies (name) VALUES (?)', [$company]);
-    $hash      = $crypto->hashPassword($password);
+    $companyId = mainModel::ejecutarInsert('INSERT INTO companies (name) VALUES (?)', [$company]);
+    $hash      = cifradoModel::hashContrasena($password);
 
-    $userId = $db->insert(
+    $userId = mainModel::ejecutarInsert(
         'INSERT INTO users (national_id, username, email, first_name, last_name, company_id,
                             password_hash, password_algo, password_changed_at, must_change_password, status, mfa_enforced)
          VALUES (?,?,?,?,?,?,?,?,NOW(),1,"active",1)',
         [$nationalId, strtolower($username), strtolower($email), $firstName, $lastName, $companyId, $hash['hash'], $hash['algo']]
     );
-    $roleId = (int) $db->scalar("SELECT id FROM roles WHERE code = 'SUPERADMIN'");
-    $db->execute('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$userId, $roleId]);
+    $roleId = (int) mainModel::obtenerValor("SELECT id FROM roles WHERE code = 'SUPERADMIN'");
+    mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$userId, $roleId]);
 
-    $db->insert(
+    mainModel::ejecutarInsert(
         'INSERT INTO audit_logs (user_id, actor_national_id, actor_name, action, entity_type, entity_id,
                                  entity_label, result, severity, ip_address, details)
          VALUES (?,?,?,?,?,?,?,?,?,?,?)',
@@ -221,30 +224,21 @@ if ($command === 'install' || $command === 'migrate') {
 // --------------------------------------------------------------------
 //  Resto de comandos (requieren instalacion previa)
 // --------------------------------------------------------------------
-$db = Database::instance();
 
 switch ($command) {
 
     case 'alerts:run':
-        /** @var AlertService $alerts */
-        $alerts = $container->get(AlertService::class);
-        $count  = $alerts->dispatch();
+        $count  = alertaModel::dispatch();
         ok($count . ' tipo(s) de alerta despachados.');
         break;
 
     case 'maintenance':
         title('Mantenimiento');
-        /** @var ExportService $exports */
-        $exports = $container->get(ExportService::class);
-        ok($exports->purgeExpiredFiles() . ' archivo(s) de exportacion purgados.');
-        /** @var SessionService $sessions */
-        $sessions = $container->get(SessionService::class);
-        ok($sessions->purgeExpired() . ' sesion(es) marcadas como expiradas.');
-        /** @var RateLimiter $limiter */
-        $limiter = $container->get(RateLimiter::class);
-        ok($limiter->purgeExpired() . ' cubo(s) de limitacion liberados.');
-        $db->execute('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 180 DAY)');
-        $db->execute('DELETE FROM password_resets WHERE expires_at < DATE_SUB(NOW(), INTERVAL 7 DAY)');
+        ok(exportacionModel::purgeExpiredFiles() . ' archivo(s) de exportacion purgados.');
+        ok(sesionModel::purgarExpiradas() . ' sesion(es) marcadas como expiradas.');
+        ok(limitadorModel::purgarVencidos() . ' cubo(s) de limitacion liberados.');
+        mainModel::ejecutarConsultaAfectadas('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 180 DAY)');
+        mainModel::ejecutarConsultaAfectadas('DELETE FROM password_resets WHERE expires_at < DATE_SUB(NOW(), INTERVAL 7 DAY)');
         ok('Registros temporales antiguos eliminados (la auditoria se conserva integra).');
         break;
 
@@ -255,19 +249,17 @@ switch ($command) {
             out('Cancelado.');
             break;
         }
-        /** @var CryptoService $crypto */
-        $crypto = $container->get(CryptoService::class);
-        $newVersion = $crypto->createKeyVersion();
+        $newVersion = cifradoModel::crearVersionClave();
         ok('Nueva version de clave: ' . $newVersion);
 
-        $rows    = $db->select('SELECT * FROM credential_secrets ORDER BY id');
+        $rows    = mainModel::obtenerFilas('SELECT * FROM credential_secrets ORDER BY id');
         $rotated = 0;
         $failed  = 0;
         foreach ($rows as $row) {
-            $aad = $crypto->aad('credential', (int) $row['credential_id'], (string) $row['field'], (int) $row['version']);
-            $new = $crypto->rewrap($row, $aad);
+            $aad = cifradoModel::aad('credential', (int) $row['credential_id'], (string) $row['field'], (int) $row['version']);
+            $new = cifradoModel::reenvolver($row, $aad);
             if ($new === null) { $failed++; continue; }
-            $db->execute(
+            mainModel::ejecutarConsultaAfectadas(
                 'UPDATE credential_secrets
                     SET key_version = ?, ciphertext = ?, nonce = ?, tag = ?, wrapped_dek = ?, dek_nonce = ?, dek_tag = ?
                   WHERE id = ?',
@@ -276,11 +268,11 @@ switch ($command) {
             );
             $rotated++;
         }
-        foreach ($db->select('SELECT * FROM mfa_secrets') as $row) {
-            $aad = $crypto->aad('user', (int) $row['user_id'], 'mfa_secret');
-            $new = $crypto->rewrap($row, $aad);
+        foreach (mainModel::obtenerFilas('SELECT * FROM mfa_secrets') as $row) {
+            $aad = cifradoModel::aad('user', (int) $row['user_id'], 'mfa_secret');
+            $new = cifradoModel::reenvolver($row, $aad);
             if ($new === null) { $failed++; continue; }
-            $db->execute(
+            mainModel::ejecutarConsultaAfectadas(
                 'UPDATE mfa_secrets
                     SET key_version = ?, ciphertext = ?, nonce = ?, tag = ?, wrapped_dek = ?, dek_nonce = ?, dek_tag = ?
                   WHERE user_id = ?',
@@ -295,12 +287,6 @@ switch ($command) {
 
     case 'user:create':
         title('Crear usuario');
-        /** @var UserRepository $users */
-        $users     = $container->get(UserRepository::class);
-        /** @var CryptoService $crypto */
-        $crypto    = $container->get(CryptoService::class);
-        /** @var PasswordGeneratorService $generator */
-        $generator = $container->get(PasswordGeneratorService::class);
 
         $nationalId = ask('Cedula');
         $username   = strtolower(ask('Usuario'));
@@ -309,19 +295,19 @@ switch ($command) {
         $lastName   = ask('Apellidos');
 
         out('Roles disponibles:');
-        foreach ($db->select('SELECT id, code, name FROM roles ORDER BY level DESC') as $role) {
+        foreach (mainModel::obtenerFilas('SELECT id, code, name FROM roles ORDER BY level DESC') as $role) {
             out('  ' . $role['id'] . ') ' . $role['name'] . ' (' . $role['code'] . ')');
         }
         $roleId = (int) ask('Id del rol', '4');
 
-        $password = $generator->generate(['length' => 18, 'exclude_ambiguous' => true]);
-        $hash     = $crypto->hashPassword($password);
-        $userId   = $users->create([
+        $password = generadorModel::generate(['length' => 18, 'exclude_ambiguous' => true]);
+        $hash     = cifradoModel::hashContrasena($password);
+        $userId   = usuarioModel::crearRegistro([
             'national_id'   => $nationalId, 'username' => $username, 'email' => $email,
             'first_name'    => $firstName,  'last_name' => $lastName,
             'password_hash' => $hash['hash'], 'password_algo' => $hash['algo'],
         ]);
-        $db->execute('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$userId, $roleId]);
+        mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$userId, $roleId]);
 
         ok('Usuario creado con id ' . $userId);
         out('  Contrasena temporal: ' . $password);
@@ -343,8 +329,8 @@ switch ($command) {
             'storage escribible'          => is_writable($root . '/storage'),
             'exports fuera del webroot'   => !str_starts_with((string) Config::get('paths.exports'), $root . '/public'),
             'display_errors desactivado'  => ini_get('display_errors') === '0' || Config::get('app.debug') === true,
-            'Conexion a la base de datos' => (function () use ($db): bool {
-                try { $db->scalar('SELECT 1'); return true; } catch (Throwable) { return false; }
+            'Conexion a la base de datos' => (function (): bool {
+                try { mainModel::obtenerValor('SELECT 1'); return true; } catch (Throwable) { return false; }
             })(),
         ];
         foreach ($checks as $label => $passed) {
@@ -358,9 +344,9 @@ switch ($command) {
             out('    chown <usuario-del-servidor-web> ' . $root . '/.env && chmod 400 ' . $root . '/.env');
         }
 
-        $secrets = (int) $db->scalar('SELECT COUNT(*) FROM credential_secrets');
+        $secrets = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM credential_secrets');
         $plain   = 0;
-        foreach ($db->select('SELECT ciphertext FROM credential_secrets LIMIT 200') as $row) {
+        foreach (mainModel::obtenerFilas('SELECT ciphertext FROM credential_secrets LIMIT 200') as $row) {
             $value = is_resource($row['ciphertext']) ? stream_get_contents($row['ciphertext']) : (string) $row['ciphertext'];
             if (mb_check_encoding($value, 'UTF-8') && preg_match('/^[\x20-\x7E]{4,}$/', $value) === 1) {
                 $plain++;
@@ -379,7 +365,7 @@ switch ($command) {
 
     case 'migrate:status':
         title('Estado de las migraciones');
-        $migrator = new Migrator($db, $root . '/database/migrations');
+        $migrator = new Migrator($root . '/database/migrations');
         $applied  = $migrator->applied();
         foreach ($migrator->available() as $m) {
             $record = $applied[$m['version']] ?? null;
@@ -412,7 +398,7 @@ switch ($command) {
 
         // Se conserva el superadministrador de menor id; si no existe, se aborta
         // para no dejar el sistema sin ninguna cuenta de acceso.
-        $keep = $db->selectOne(
+        $keep = mainModel::obtenerFila(
             "SELECT u.id, u.username, u.national_id, u.email, u.first_name, u.last_name
                FROM users u
                JOIN user_roles ur ON ur.user_id = u.id
@@ -429,7 +415,7 @@ switch ($command) {
         // TRUNCATE provoca un commit implicito en MySQL, de modo que no puede
         // envolverse en una transaccion: se ejecuta de forma secuencial con
         // las comprobaciones de clave ajena desactivadas.
-        $db->exec('SET FOREIGN_KEY_CHECKS = 0');
+        mainModel::ejecutarConsulta('SET FOREIGN_KEY_CHECKS = 0');
         foreach ([
             'export_report_items', 'export_reports', 'secret_access_log', 'credential_history',
             'credential_assignments', 'credential_secrets', 'credentials', 'systems',
@@ -437,22 +423,18 @@ switch ($command) {
             'password_resets', 'mfa_backup_codes', 'mfa_secrets', 'rate_limits',
             'departments', 'locations', 'companies',
         ] as $table) {
-            $db->exec('TRUNCATE TABLE `' . $table . '`');
+            mainModel::ejecutarConsulta('TRUNCATE TABLE `' . $table . '`');
         }
-        $db->execute('DELETE FROM sessions WHERE user_id <> ?', [$keepId]);
-        $db->execute('DELETE FROM user_permissions WHERE user_id <> ?', [$keepId]);
-        $db->execute('DELETE FROM user_roles WHERE user_id <> ?', [$keepId]);
-        $db->execute('DELETE FROM users WHERE id <> ?', [$keepId]);
-        $db->exec('SET FOREIGN_KEY_CHECKS = 1');
+        mainModel::ejecutarConsultaAfectadas('DELETE FROM sessions WHERE user_id <> ?', [$keepId]);
+        mainModel::ejecutarConsultaAfectadas('DELETE FROM user_permissions WHERE user_id <> ?', [$keepId]);
+        mainModel::ejecutarConsultaAfectadas('DELETE FROM user_roles WHERE user_id <> ?', [$keepId]);
+        mainModel::ejecutarConsultaAfectadas('DELETE FROM users WHERE id <> ?', [$keepId]);
+        mainModel::ejecutarConsulta('SET FOREIGN_KEY_CHECKS = 1');
 
         // Contrasena temporal nueva para el superadministrador conservado.
-        /** @var PasswordGeneratorService $generator */
-        $generator = $container->get(PasswordGeneratorService::class);
-        /** @var CryptoService $crypto */
-        $crypto = $container->get(CryptoService::class);
-        $plain  = $generator->generate(['length' => 20, 'exclude_ambiguous' => true]);
-        $hash   = $crypto->hashPassword($plain);
-        $db->execute(
+        $plain  = generadorModel::generate(['length' => 20, 'exclude_ambiguous' => true]);
+        $hash   = cifradoModel::hashContrasena($plain);
+        mainModel::ejecutarConsultaAfectadas(
             'UPDATE users SET password_hash = ?, password_algo = ?, password_changed_at = NOW(),
                               must_change_password = 1, company_id = NULL, location_id = NULL,
                               department_id = NULL, failed_attempts = 0, locked_until = NULL,
@@ -460,7 +442,7 @@ switch ($command) {
               WHERE id = ?',
             [$hash['hash'], $hash['algo'], $keepId]
         );
-        $db->execute('UPDATE sessions SET status = ? WHERE status = ?', ['revoked', 'active']);
+        mainModel::ejecutarConsultaAfectadas('UPDATE sessions SET status = ? WHERE status = ?', ['revoked', 'active']);
 
         out();
         ok('Base de datos limpia.');
