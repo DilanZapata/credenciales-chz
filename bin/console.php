@@ -313,6 +313,70 @@ switch ($command) {
         out('  Contrasena temporal: ' . $password);
         break;
 
+    /**
+     * Primer superadministrador, sin preguntas.
+     *
+     * `install` y `user:create` piden los datos por teclado, lo que no
+     * sirve dentro de un contenedor: el arranque no tiene a nadie
+     * delante. Sin esto, un despliegue queda con el esquema creado y
+     * ningun usuario, es decir, con la puerta cerrada por fuera.
+     *
+     * Es idempotente a proposito: si ya existe algun usuario no toca
+     * nada, para que un redespliegue no clone administradores.
+     */
+    case 'user:bootstrap':
+        $existentes = (int) mainModel::obtenerValor('SELECT COUNT(*) FROM users');
+        if ($existentes > 0) {
+            ok('Ya existen ' . $existentes . ' usuario(s): no se crea ninguno.');
+            break;
+        }
+
+        title('Creacion del primer superadministrador');
+
+        $dominio = parse_url((string) Config::get('app.url', ''), PHP_URL_HOST) ?: 'local';
+        $datos = [
+            'national_id' => getenv('ADMIN_NATIONAL_ID') ?: '1000000000',
+            'username'    => strtolower(getenv('ADMIN_USERNAME') ?: 'admin'),
+            'email'       => strtolower(getenv('ADMIN_EMAIL') ?: ('admin@' . $dominio)),
+            'first_name'  => getenv('ADMIN_FIRST_NAME') ?: 'Administrador',
+            'last_name'   => getenv('ADMIN_LAST_NAME') ?: 'del Sistema',
+        ];
+
+        // La contrasena NUNCA se toma del entorno: quedaria escrita en el
+        // panel de despliegue y en las variables del contenedor para
+        // siempre. Se genera una temporal de un solo uso.
+        $clave = generadorModel::generate(['length' => 20, 'exclude_ambiguous' => true]);
+        $hash  = cifradoModel::hashContrasena($clave);
+
+        $rol = (int) mainModel::obtenerValor("SELECT id FROM roles WHERE code = 'SUPERADMIN'");
+        if ($rol === 0) {
+            fail('No existe el rol SUPERADMIN. Aplique primero las migraciones.');
+            exit(1);
+        }
+
+        $idNuevo = mainModel::ejecutarInsert(
+            'INSERT INTO users (national_id, username, email, first_name, last_name,
+                                password_hash, password_algo, must_change_password, status)
+             VALUES (?,?,?,?,?,?,?,1,"active")',
+            [$datos['national_id'], $datos['username'], $datos['email'],
+             $datos['first_name'], $datos['last_name'], $hash['hash'], $hash['algo']]
+        );
+        mainModel::ejecutarConsultaAfectadas(
+            'INSERT INTO user_roles (user_id, role_id) VALUES (?,?)', [$idNuevo, $rol]
+        );
+
+        out();
+        out(str_repeat('=', 64));
+        out('  PRIMER ACCESO AL SISTEMA');
+        out(str_repeat('=', 64));
+        out('  Usuario:    ' . $datos['username'] . '   (o la cedula ' . $datos['national_id'] . ')');
+        out('  Contrasena: ' . $clave);
+        out(str_repeat('=', 64));
+        warn('Esta contrasena se muestra UNA sola vez y solo aparece aqui.');
+        warn('Debera cambiarla al entrar. Borre este registro cuando lo haga.');
+        out();
+        break;
+
     case 'doctor':
         title('Diagnostico de la instalacion');
         $checks = [
@@ -461,7 +525,8 @@ switch ($command) {
         out('  migrate:status  Muestra que migraciones estan aplicadas y cuales faltan');
         out('  seed:demo       Carga datos de ejemplo (NO usar en produccion)');
         out('  db:clean        Borra datos operativos y deja solo el superadministrador');
-        out('  user:create     Crea un usuario');
+        out('  user:create     Crea un usuario (interactivo)');
+        out('  user:bootstrap  Crea el primer superadministrador sin preguntas (contenedores)');
         out('  alerts:run      Evalua y despacha alertas (programar en cron)');
         out('  maintenance     Purga archivos, sesiones y limitadores vencidos (cron)');
         out('  key:rotate      Rota el llavero y re-cifra los secretos');

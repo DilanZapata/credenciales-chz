@@ -51,6 +51,13 @@ chmod -R 750 storage
 echo "==> Aplicando migraciones"
 php bin/console.php migrate
 
+# Las migraciones crean el esquema y los datos de referencia, pero ningun
+# usuario: sin esto el despliegue queda con la puerta cerrada por fuera.
+# No hace nada si ya existe alguno, asi que un redespliegue no clona
+# administradores.
+echo "==> Primer superadministrador"
+php bin/console.php user:bootstrap
+
 echo "==> Diagnostico"
 php bin/console.php doctor || true
 
