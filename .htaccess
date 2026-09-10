@@ -28,6 +28,13 @@ RewriteRule ^([a-zA-Z0-9/ñÑ_-]+)$ index.php?views=$1 [QSA,L]
     Require all denied
 </Files>
 
+# Archivos de construccion y despliegue. Hoy quedan fuera de alcance porque
+# la reescritura se los traga al no llevar punto, pero eso es un efecto
+# lateral, no una decision: aqui queda explicito.
+<FilesMatch "^(Dockerfile|docker-compose\.ya?ml|Makefile|composer\.(json|lock))$">
+    Require all denied
+</FilesMatch>
+
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"

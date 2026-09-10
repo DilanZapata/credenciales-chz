@@ -5,7 +5,7 @@
 | Componente | Mínimo | Comprobación |
 |---|---|---|
 | PHP | 8.1 (probado en 8.2) | `php -v` |
-| Extensiones | `openssl`, `pdo_mysql`, `mbstring`, `zip`, `json` | `php -m` |
+| Extensiones | `openssl`, `mysqli`, `mbstring`, `zip`, `json` | `php -m` |
 | Cifrado | `aes-256-gcm` disponible en OpenSSL | `php bin/console.php doctor` |
 | Base de datos | MySQL 5.7+ / MariaDB 10.3+ | `mysql --version` |
 | Servidor web | Apache con `mod_rewrite` y `mod_headers`, o Nginx | |

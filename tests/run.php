@@ -1339,6 +1339,19 @@ foreach ([
         'HTTP ' . $r['status']);
 }
 
+// Los archivos de la raiz tampoco: el Dockerfile y el compose describen el
+// despliegue, y el .env.example el nombre de cada variable sensible.
+foreach ([
+    '/Dockerfile'         => 'el Dockerfile',
+    '/docker-compose.yml' => 'el compose',
+    '/.env.example'       => 'la plantilla de entorno',
+    '/.gitignore'         => 'el .gitignore',
+] as $ruta => $descripcion) {
+    $r = $sup->get($ruta);
+    $t->assert($r['status'] === 403, 'No se puede descargar ' . $descripcion . ' (' . $ruta . ')',
+        'HTTP ' . $r['status']);
+}
+
 // Los recursos si se sirven: sin ellos la interfaz no se dibuja.
 foreach (['/app/views/css/global.css', '/app/views/js/global.js'] as $ruta) {
     $r = $sup->get($ruta);

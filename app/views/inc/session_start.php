@@ -138,8 +138,11 @@ $dispositivoCliente = (static function (string $ua): string {
 $rutaSolicitada = (static function (): string {
     $uri  = $_SERVER['REQUEST_URI'] ?? '/';
     $ruta = parse_url($uri, PHP_URL_PATH) ?: '/';
+    // El prefijo se retira SOLO en un limite de segmento. Comparar por
+    // prefijo a secas convertia /credenciales en /es cuando la aplicacion
+    // vive bajo /credencial, y la peticion acababa en una vista que no era.
     $base = (string) Config::get('app.base_path', '');
-    if ($base !== '' && str_starts_with($ruta, $base)) {
+    if ($base !== '' && ($ruta === $base || str_starts_with($ruta, $base . '/'))) {
         $ruta = substr($ruta, strlen($base));
     }
     $ruta = '/' . trim($ruta, '/');

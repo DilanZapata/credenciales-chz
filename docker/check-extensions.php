@@ -21,7 +21,6 @@ $errores = [];
 // Sin estas el sistema NO puede funcionar correctamente: son fatales.
 $requeridas = [
     'mysqli'    => 'acceso a la base de datos',
-    'pdo_mysql' => 'preparacion de la base en las pruebas',
     'zip'       => 'generacion de archivos .xlsx',
     'openssl'   => 'cifrado de los secretos',
     'mbstring'  => 'manejo de texto UTF-8',
