@@ -114,3 +114,42 @@ function metodoNoPermitido(string $metodo): array
         'data'    => null,
     ];
 }
+
+/**
+ * Entrega un archivo generado y termina.
+ *
+ * Los reportes pueden contener contrasenas en claro, asi que se envian sin
+ * cache y el archivo se borra del disco en cuanto sale.
+ */
+function enviarArchivo(string $ruta, string $nombre, string $mime, bool $eliminar = true): never
+{
+    $nombre = substr(preg_replace('/[^A-Za-z0-9._\- ]/', '_', $nombre) ?? 'archivo', 0, 120);
+
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . (string) filesize($ruta));
+    header('Content-Disposition: attachment; filename="' . $nombre . '"');
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: no-store, no-cache, must-revalidate, private');
+    header('Pragma: no-cache');
+
+    readfile($ruta);
+    if ($eliminar) {
+        @unlink($ruta);
+    }
+    exit;
+}
+
+/** Entrega contenido generado en memoria (por ejemplo una plantilla CSV). */
+function enviarContenido(string $contenido, string $nombre, string $mime): never
+{
+    $nombre = substr(preg_replace('/[^A-Za-z0-9._\- ]/', '_', $nombre) ?? 'archivo', 0, 120);
+
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . (string) strlen($contenido));
+    header('Content-Disposition: attachment; filename="' . $nombre . '"');
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: no-store, no-cache, must-revalidate, private');
+
+    echo $contenido;
+    exit;
+}

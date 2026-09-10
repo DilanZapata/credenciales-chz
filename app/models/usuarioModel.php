@@ -443,7 +443,7 @@ class usuarioModel extends mainModel
             : $password;
 
         if (!$temporary) {
-            $this->auth->validatePasswordPolicy($plain, $data);
+            autenticacionModel::validatePasswordPolicy($plain, $data);
         }
 
         $hash = cifradoModel::hashContrasena($plain);
@@ -508,7 +508,7 @@ class usuarioModel extends mainModel
 
         // Nadie puede concederse a si mismo un permiso que no posee.
         foreach ($overrides as $code => $effect) {
-            if ($effect === 'allow' && !$this->context->can($code) && !contextoModel::esSuperadministrador()) {
+            if ($effect === 'allow' && !contextoModel::puede($code) && !contextoModel::esSuperadministrador()) {
                 throw HttpException::forbidden('No puede otorgar un permiso que usted no posee: ' . $code);
             }
         }

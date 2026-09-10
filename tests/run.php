@@ -977,6 +977,188 @@ $t->assert(is_file($reciente),
 @unlink($reciente);
 
 // =====================================================================
+//  14. Endpoints de la arquitectura Porcify (app/api/*-api.php)
+// =====================================================================
+//
+//  Los modulos migrados exponen ademas un endpoint JSON por archivo, con
+//  despacho por $_GET['accion']. Aqui se comprueba lo que no puede
+//  divergir del resto del sistema: que exigen sesion, que respetan los
+//  permisos, que devuelven el sobre {code,status,title,message,data} y
+//  que ninguna accion desconocida cae en un 500.
+// =====================================================================
+$t->group('14. Endpoints de la arquitectura Porcify');
+
+/** Lee el sobre JSON de la respuesta de un endpoint. */
+$sobre = static function (array $r): array {
+    $j = $r['json'] ?? json_decode((string) $r['body'], true);
+    return is_array($j) ? $j : [];
+};
+
+// Sin sesion, todo endpoint responde 401 en JSON; nunca un 500 ni una
+// pagina HTML con el arbol interno.
+$anonimo = new HttpClient('198.51.100.20');
+foreach (['usuarios', 'sistemas', 'catalogos', 'auditoria', 'sesiones', 'reportes', 'importacion'] as $modulo) {
+    $r = $anonimo->getJson('/app/api/' . $modulo . '-api.php?accion=listar');
+    $t->assert($r['status'] === 401 && ($sobre($r)['status'] ?? '') === 'error',
+        'El endpoint de ' . $modulo . ' exige sesion', 'HTTP ' . $r['status']);
+}
+
+$clearLimits();
+$api = new HttpClient('198.51.100.21');
+$api->login('admin.test', PASS_ADMIN);
+
+// Lecturas: cada accion devuelve 200 y el sobre completo.
+$lecturas = [
+    ['usuarios',    'listar',        'items'],
+    ['usuarios',    'seleccion',     'items'],
+    ['sistemas',    'listar',        'items'],
+    ['sistemas',    'seleccion',     'items'],
+    ['catalogos',   'categorias',    'items'],
+    ['catalogos',   'organizacion',  'companies'],
+    ['catalogos',   'roles',         'roles'],
+    ['auditoria',   'listar',        'items'],
+    ['auditoria',   'acciones',      'items'],
+    ['auditoria',   'eventos',       'items'],
+    ['sesiones',    'listar',        'items'],
+    ['reportes',    'opciones',      'systems'],
+    ['reportes',    'seleccion',     'items'],
+    ['reportes',    'historial',     'items'],
+    ['importacion', 'columnas',      'columns'],
+];
+foreach ($lecturas as [$modulo, $accion, $clave]) {
+    $r = $api->getJson('/app/api/' . $modulo . '-api.php?accion=' . $accion);
+    $j = $sobre($r);
+    $t->assert(
+        $r['status'] === 200 && ($j['status'] ?? '') === 'success' && isset($j['data'][$clave]),
+        $modulo . '-api.php?accion=' . $accion . ' responde con datos',
+        'HTTP ' . $r['status'] . ' ' . substr((string) $r['body'], 0, 120)
+    );
+}
+
+// Separacion de funciones: el rol ADMIN no administra las politicas de
+// seguridad ni la matriz de roles (0002_datos_de_referencia.sql se las
+// excluye a proposito). El endpoint debe respetarlo igual que la vista.
+$r = $api->getJson('/app/api/catalogos-api.php?accion=configuracion');
+$t->assert($r['status'] === 403,
+    'Ni siquiera el administrador lee las politicas de seguridad sin settings.manage',
+    'HTTP ' . $r['status']);
+
+// El detalle de un usuario devuelve la ficha, no una lista.
+$r = $api->getJson('/app/api/usuarios-api.php?accion=ver&id=' . $auditorId);
+$j = $sobre($r);
+$t->assert($r['status'] === 200 && ($j['data']['user']['username'] ?? '') === 'auditor.test',
+    'usuarios-api.php?accion=ver devuelve la ficha del usuario solicitado');
+
+// Un identificador inexistente responde 404, no 500 ni una ficha vacia.
+$r = $api->getJson('/app/api/sistemas-api.php?accion=ver&id=999999');
+$t->assert($r['status'] === 404, 'Un identificador inexistente responde 404',
+    'HTTP ' . $r['status']);
+
+// Accion desconocida y metodo no permitido tienen respuesta propia.
+$r = $api->getJson('/app/api/usuarios-api.php?accion=noexiste');
+$t->assert($r['status'] === 400 && str_contains((string) ($sobre($r)['title'] ?? ''), 'no reconocida'),
+    'Una accion desconocida responde 400 y no un error del sistema');
+
+// Escrituras sin token anti-CSRF: rechazadas con el marcador que el cliente
+// necesita para recargar el formulario (403, nunca 419: Apache lo traduce).
+$r = $api->postJson('/app/api/catalogos-api.php?accion=guardar-categoria',
+    ['name' => 'Categoria sin token'], false);
+$j = $sobre($r);
+$t->assert($r['status'] === 403 && ($j['csrf'] ?? false) === true,
+    'Una escritura sin token anti-CSRF se rechaza con 403 y marcador csrf',
+    'HTTP ' . $r['status']);
+
+// Con token, la escritura se procesa y queda auditada.
+$r = $api->postJson('/app/api/catalogos-api.php?accion=guardar-categoria',
+    ['name' => 'Categoria por endpoint', 'color' => '#123456', 'icon' => 'folder', 'is_active' => '1']);
+$j = $sobre($r);
+$nuevaCategoria = (int) ($j['data']['id'] ?? 0);
+$t->assert($r['status'] === 200 && $nuevaCategoria > 0,
+    'Una escritura con token valido crea el registro', 'HTTP ' . $r['status']);
+$t->assert((int) $db->scalar('SELECT COUNT(*) FROM audit_logs WHERE action = ? AND entity_id = ?',
+    ['category.managed', (string) $nuevaCategoria]) === 1,
+    'La escritura por endpoint queda registrada en la auditoria');
+
+// El color se normaliza: no llega a la vista lo que el cliente envie.
+$r = $api->postJson('/app/api/catalogos-api.php?accion=guardar-categoria',
+    ['name' => 'Categoria con color invalido', 'color' => '#zzzzzz']);
+$colorGuardado = (string) $db->scalar('SELECT color FROM categories WHERE id = ?',
+    [(int) ($sobre($r)['data']['id'] ?? 0)]);
+$t->assert(preg_match('/^#[0-9a-f]{6}$/i', $colorGuardado) === 1,
+    'Un color con carga XSS se sustituye por el valor por defecto', $colorGuardado);
+
+// Los permisos se aplican igual que en las vistas: el consultor no gestiona
+// usuarios ni catalogos aunque llame directamente al endpoint.
+$clearLimits();
+// Se usa ana.test: juan.test quedo desactivado por la prueba de baja de
+// empleado y su sesion no llegaria a crearse.
+$apiConsultor = new HttpClient('198.51.100.22');
+$apiConsultor->login('ana.test', PASS_OTRO);
+foreach ([
+    ['usuarios',  'listar',        'listar usuarios'],
+    ['catalogos', 'roles',         'ver la matriz de roles'],
+    ['catalogos', 'configuracion', 'ver las politicas de seguridad'],
+    ['auditoria', 'listar',        'consultar la auditoria'],
+    ['sesiones',  'listar',        'ver las sesiones activas'],
+] as [$modulo, $accion, $descripcion]) {
+    $r = $apiConsultor->getJson('/app/api/' . $modulo . '-api.php?accion=' . $accion);
+    $t->assert($r['status'] === 403, 'El consultor no puede ' . $descripcion . ' por endpoint',
+        'HTTP ' . $r['status']);
+}
+
+// Nadie puede otorgar a un rol un permiso que el mismo no posee.
+$clearLimits();
+$rolAuditor = (int) $db->scalar("SELECT id FROM roles WHERE code = 'AUDITOR'");
+$r = $apiConsultor->postJson('/app/api/catalogos-api.php?accion=permisos-rol&id=' . $rolAuditor,
+    ['permissions' => ['credentials.reveal', 'users.create']]);
+$t->assert($r['status'] === 403, 'El consultor no puede reescribir la matriz de permisos de un rol',
+    'HTTP ' . $r['status']);
+
+// Cerrar la propia sesion desde el panel de sesiones se rechaza: para eso
+// existe "Salir", y hacerlo aqui dejaria al operador fuera sin aviso.
+$r = $api->postJson('/app/api/sesiones-api.php?accion=revocar',
+    ['sid' => $api->cookie('scgca_session') !== null ? hash('sha256', (string) $api->cookie('scgca_session')) : '']);
+$t->assert($r['status'] === 400,
+    'El endpoint de sesiones no permite cerrar la sesion propia', 'HTTP ' . $r['status']);
+
+// El endpoint de reportes entrega el XLSX y borra el archivo del servidor.
+$clearLimits();
+$r = $api->postJson('/app/api/reportes-api.php?accion=generar', ['type' => 'inventory']);
+$j = $sobre($r);
+$uuidReporte = (string) ($j['data']['uuid'] ?? '');
+$t->assert($r['status'] === 201 && $uuidReporte !== '',
+    'reportes-api.php genera el reporte y devuelve su identificador', 'HTTP ' . $r['status']);
+
+$r = $api->get('/app/api/reportes-api.php?accion=descargar&uuid=' . $uuidReporte);
+$t->assert($r['status'] === 200 && str_starts_with((string) $r['body'], 'PK'),
+    'reportes-api.php entrega un archivo XLSX real', 'HTTP ' . $r['status']);
+$t->assert(str_contains($r['headers']['Content-Disposition'] ?? '', 'attachment'),
+    'El reporte se entrega como descarga y no se muestra en el navegador');
+
+$r = $api->getJson('/app/api/reportes-api.php?accion=descargar&uuid=' . $uuidReporte);
+$t->assert($r['status'] >= 400,
+    'El archivo ya no puede descargarse una segunda vez', 'HTTP ' . $r['status']);
+
+// Un reporte ajeno responde 404 (no 403: no se confirma que exista).
+$clearLimits();
+$apiAuditor = new HttpClient('198.51.100.23');
+$apiAuditor->login('auditor.test', PASS_AUDITOR);
+$r = $apiAuditor->getJson('/app/api/reportes-api.php?accion=descargar&uuid=' . $uuidReporte);
+$t->assert($r['status'] === 404, 'Un reporte de otro usuario responde 404 por endpoint',
+    'HTTP ' . $r['status']);
+
+// La plantilla de importacion se entrega como CSV descargable.
+$clearLimits();
+$r = $api->get('/app/api/importacion-api.php?accion=plantilla');
+$t->assert($r['status'] === 200 && str_contains($r['headers']['Content-Type'] ?? '', 'text/csv'),
+    'importacion-api.php entrega la plantilla como CSV', 'HTTP ' . $r['status']);
+
+// El endpoint de credenciales nunca devuelve el secreto.
+$r = $api->getJson('/app/api/credenciales-api.php?accion=ver&id=' . $credA['id']);
+$t->assert($r['status'] === 200 && !str_contains((string) $r['body'], 'S3cret0-Contab!2026'),
+    'El endpoint de credenciales no devuelve la contrasena en claro');
+
+// =====================================================================
 //  Resumen
 // =====================================================================
 exit($t->summary());
