@@ -3,179 +3,61 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use app\models\contextoModel;
+
 /**
- * Contexto de seguridad de la peticion en curso: quien actua, con que
- * sesion, desde donde y con que permisos efectivos.
+ * Envoltorio de transicion sobre `app\models\contextoModel`.
  *
- * Es la unica fuente de verdad de autorizacion del backend. Los
- * controladores y servicios preguntan aqui; nunca al frontend.
+ * El contexto de seguridad vive ahora en el modelo, con metodos estaticos,
+ * segun la convencion de Porcify Manager. Esta clase se conserva mientras
+ * queden consumidores que la reciben por inyeccion.
  */
 final class AuthContext
 {
-    /** @var array<string,mixed>|null */
-    private ?array $user = null;
-    /** @var array<string,mixed>|null */
-    private ?array $session = null;
-    /** @var array<string,bool> */
-    private array $permissions = [];
-    /** @var array<int,array<string,mixed>> */
-    private array $roles = [];
-
-    private string $ip = '0.0.0.0';
-    private string $userAgent = '';
-    private string $device = '';
-    private string $route = '';
-    private string $method = '';
-
-    public function setRequestInfo(string $ip, string $userAgent, string $device, string $method, string $route): void
+    public function setRequestInfo(string $ip, string $agente, string $dispositivo, string $metodo, string $ruta): void
     {
-        $this->ip        = $ip;
-        $this->userAgent = $userAgent;
-        $this->device    = $device;
-        $this->method    = $method;
-        $this->route     = $route;
+        contextoModel::fijarDatosPeticion($ip, $agente, $dispositivo, $metodo, $ruta);
     }
 
-    /**
-     * @param array<string,mixed> $user
-     * @param array<string,mixed> $session
-     * @param array<int,string>   $permissions
-     * @param array<int,array<string,mixed>> $roles
-     */
-    public function authenticate(array $user, array $session, array $permissions, array $roles): void
+    public function authenticate(array $usuario, array $sesion, array $permisos, array $roles): void
     {
-        $this->user        = $user;
-        $this->session     = $session;
-        $this->roles       = $roles;
-        $this->permissions = array_fill_keys($permissions, true);
+        contextoModel::autenticar($usuario, $sesion, $permisos, $roles);
     }
 
-    public function forget(): void
+    public function forget(): void            { contextoModel::olvidar(); }
+    public function check(): bool             { return contextoModel::autenticado(); }
+    public function user(): ?array            { return contextoModel::usuario(); }
+    public function id(): ?int                { return contextoModel::id(); }
+    public function nationalId(): ?string     { return contextoModel::cedula(); }
+    public function fullName(): string        { return contextoModel::nombreCompleto(); }
+    public function session(): ?array         { return contextoModel::sesion(); }
+    public function sessionId(): ?string      { return contextoModel::idSesion(); }
+    public function csrfToken(): ?string      { return contextoModel::tokenCsrf(); }
+    public function can(string $p): bool      { return contextoModel::puede($p); }
+    public function permissions(): array      { return contextoModel::permisos(); }
+    public function roles(): array            { return contextoModel::roles(); }
+    public function roleCodes(): array        { return contextoModel::codigosRol(); }
+    public function hasRole(string $c): bool  { return contextoModel::tieneRol($c); }
+    public function isSuperAdmin(): bool      { return contextoModel::esSuperadministrador(); }
+    public function level(): int              { return contextoModel::nivel(); }
+    public function ip(): string              { return contextoModel::ip(); }
+    public function userAgent(): string       { return contextoModel::agente(); }
+    public function device(): string          { return contextoModel::dispositivo(); }
+    public function route(): string           { return contextoModel::ruta(); }
+    public function method(): string          { return contextoModel::metodo(); }
+
+    public function canAny(string ...$permisos): bool
     {
-        $this->user        = null;
-        $this->session     = null;
-        $this->permissions = [];
-        $this->roles       = [];
+        return contextoModel::puedeAlguno(...$permisos);
     }
 
-    public function check(): bool
+    public function reauthenticatedWithin(int $minutos): bool
     {
-        return $this->user !== null;
+        return contextoModel::reautenticadoHace($minutos);
     }
 
-    /** @return array<string,mixed>|null */
-    public function user(): ?array
+    public function markReauthenticated(string $marca): void
     {
-        return $this->user;
+        contextoModel::marcarReautenticado($marca);
     }
-
-    public function id(): ?int
-    {
-        return $this->user !== null ? (int) $this->user['id'] : null;
-    }
-
-    public function nationalId(): ?string
-    {
-        return $this->user['national_id'] ?? null;
-    }
-
-    public function fullName(): string
-    {
-        if ($this->user === null) {
-            return 'Sistema';
-        }
-        return trim(($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? ''));
-    }
-
-    /** @return array<string,mixed>|null */
-    public function session(): ?array
-    {
-        return $this->session;
-    }
-
-    public function sessionId(): ?string
-    {
-        return $this->session['id'] ?? null;
-    }
-
-    public function csrfToken(): ?string
-    {
-        return $this->session['csrf_token'] ?? null;
-    }
-
-    public function can(string $permission): bool
-    {
-        return isset($this->permissions[$permission]);
-    }
-
-    public function canAny(string ...$permissions): bool
-    {
-        foreach ($permissions as $permission) {
-            if ($this->can($permission)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** @return array<int,string> */
-    public function permissions(): array
-    {
-        return array_keys($this->permissions);
-    }
-
-    /** @return array<int,array<string,mixed>> */
-    public function roles(): array
-    {
-        return $this->roles;
-    }
-
-    /** @return array<int,string> */
-    public function roleCodes(): array
-    {
-        return array_map(static fn (array $r): string => (string) $r['code'], $this->roles);
-    }
-
-    public function hasRole(string $code): bool
-    {
-        return in_array($code, $this->roleCodes(), true);
-    }
-
-    public function isSuperAdmin(): bool
-    {
-        return $this->hasRole('SUPERADMIN');
-    }
-
-    /** Nivel de privilegio mas alto entre los roles del usuario. */
-    public function level(): int
-    {
-        $max = 0;
-        foreach ($this->roles as $role) {
-            $max = max($max, (int) $role['level']);
-        }
-        return $max;
-    }
-
-    /** True si la reautenticacion (step-up) sigue vigente. */
-    public function reauthenticatedWithin(int $minutes): bool
-    {
-        $at = $this->session['reauth_at'] ?? null;
-        if ($at === null) {
-            return false;
-        }
-        return strtotime((string) $at) >= (time() - ($minutes * 60));
-    }
-
-    public function markReauthenticated(string $timestamp): void
-    {
-        if ($this->session !== null) {
-            $this->session['reauth_at'] = $timestamp;
-        }
-    }
-
-    public function ip(): string        { return $this->ip; }
-    public function userAgent(): string { return $this->userAgent; }
-    public function device(): string    { return $this->device; }
-    public function route(): string     { return $this->route; }
-    public function method(): string    { return $this->method; }
 }
