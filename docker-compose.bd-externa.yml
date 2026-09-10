@@ -1,0 +1,122 @@
+# =====================================================================
+#  Despliegue en Dokploy usando una base de datos creada como SERVICIO
+#  APARTE en el propio Dokploy (no la que levanta docker-compose.yml).
+#
+#  Use ESTE archivo o el otro, nunca los dos: docker-compose.yml trae su
+#  propio contenedor de base de datos y acabaria con dos bases, la del
+#  servicio vacia y la del compose con los datos.
+#
+#  Variables que DEBE definir en el panel de Dokploy:
+#     APP_MASTER_KEY   32 bytes en base64  (irremplazable: guarde copia)
+#     APP_PEPPER       32 bytes en base64
+#     APP_URL          https://credenciales.suempresa.com
+#     DB_HOST          nombre interno del servicio de base de datos,
+#                      tal como lo muestra Dokploy en "Internal Host"
+#     DB_DATABASE      credenciales_corp
+#     DB_USERNAME      credenciales      (NO root: si una inyeccion se
+#                                         cuela, root puede borrar la base)
+#     DB_PASSWORD      la del usuario anterior
+#
+#  IMPORTANTE al configurar el dominio en Dokploy:
+#     Service Name   = app
+#     Container Port = 80        <-- NO 3000 (valor por defecto de Dokploy,
+#                                    pensado para aplicaciones Node)
+# =====================================================================
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_NAME:         "${APP_NAME:-Sistema Corporativo de Gestion de Credenciales}"
+      APP_SHORT_NAME:   "${APP_SHORT_NAME:-Credenciales}"
+      APP_ORGANIZATION: "${APP_ORGANIZATION:-Mi Empresa}"
+      APP_ENV:          production
+      APP_DEBUG:        "false"
+      APP_URL:          "${APP_URL}"
+      # Con dominio propio la aplicacion vive en la raiz: sin prefijo.
+      APP_BASE_PATH:    ""
+      APP_TIMEZONE:     "${APP_TIMEZONE:-America/Bogota}"
+      # Dokploy publica detras de Traefik: se confia en X-Forwarded-*
+      APP_TRUST_PROXY:  "true"
+
+      APP_MASTER_KEY:   "${APP_MASTER_KEY}"
+      APP_PEPPER:       "${APP_PEPPER}"
+
+      # La base vive fuera de este compose: el host lo da Dokploy.
+      DB_HOST:          "${DB_HOST}"
+      DB_PORT:          "${DB_PORT:-3306}"
+      DB_DATABASE:      "${DB_DATABASE:-credenciales_corp}"
+      DB_USERNAME:      "${DB_USERNAME:-credenciales}"
+      DB_PASSWORD:      "${DB_PASSWORD}"
+
+      # HTTPS obligatorio en produccion: la cookie va marcada Secure.
+      SESSION_SECURE:   "true"
+      SESSION_SAMESITE: Strict
+
+      CORS_ENABLED:     "false"
+    volumes:
+      # Solo los datos que deben sobrevivir a un redespliegue.
+      - scgca_storage:/var/www/html/storage
+    expose:
+      - "80"
+    networks:
+      # Red del proxy de Dokploy. Hace dos cosas aqui: deja que Traefik
+      # alcance el contenedor (sin ella responde "404 page not found") y
+      # es tambien el camino hacia el servicio de base de datos, que vive
+      # en esta misma red.
+      - dokploy-network
+
+  # Tareas programadas: alertas diarias y mantenimiento cada 10 minutos.
+  # El mantenimiento es el que impide que un Excel con contrasenas quede
+  # abandonado en el servidor.
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV:         production
+      APP_DEBUG:       "false"
+      APP_URL:         "${APP_URL}"
+      APP_TIMEZONE:    "${APP_TIMEZONE:-America/Bogota}"
+      APP_MASTER_KEY:  "${APP_MASTER_KEY}"
+      APP_PEPPER:      "${APP_PEPPER}"
+      DB_HOST:         "${DB_HOST}"
+      DB_PORT:         "${DB_PORT:-3306}"
+      DB_DATABASE:     "${DB_DATABASE:-credenciales_corp}"
+      DB_USERNAME:     "${DB_USERNAME:-credenciales}"
+      DB_PASSWORD:     "${DB_PASSWORD}"
+    volumes:
+      - scgca_storage:/var/www/html/storage
+    # El chequeo de salud de la imagen comprueba que Apache responda, pero
+    # este contenedor no levanta Apache: solo ejecuta el bucle de tareas.
+    # Sin desactivarlo quedaria marcado como "unhealthy" para siempre.
+    healthcheck:
+      disable: true
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        ultima_alerta=""
+        while true; do
+          php /var/www/html/bin/console.php maintenance >/dev/null 2>&1 || true
+          hoy=$$(date +%F)
+          if [ "$$(date +%H)" = "07" ] && [ "$$ultima_alerta" != "$$hoy" ]; then
+            php /var/www/html/bin/console.php alerts:run || true
+            ultima_alerta="$$hoy"
+          fi
+          sleep 600
+        done
+    networks:
+      - dokploy-network
+
+volumes:
+  scgca_storage:
+
+networks:
+  # Red compartida donde corren el proxy de Dokploy y sus servicios de
+  # base de datos. La crea Dokploy al instalarse.
+  dokploy-network:
+    external: true
