@@ -5,7 +5,8 @@
 FROM php:8.2-apache
 
 # --- Extensiones de PHP requeridas -----------------------------------
-#  pdo_mysql : acceso a la base de datos
+#  mysqli    : acceso a la base de datos (patron de Porcify Manager)
+#  pdo_mysql : solo para la preparacion de la base en las pruebas
 #  zip       : generacion de los archivos .xlsx
 #  opcache   : rendimiento en produccion
 #  NO se purga libzip-dev despues de compilar: al hacerlo con --auto-remove
@@ -15,7 +16,7 @@ FROM php:8.2-apache
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libzip-dev \
         default-mysql-client \
-    && docker-php-ext-install -j"$(nproc)" pdo_mysql zip opcache \
+    && docker-php-ext-install -j"$(nproc)" mysqli pdo_mysql zip opcache \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Apache ----------------------------------------------------------

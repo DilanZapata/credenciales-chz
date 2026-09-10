@@ -30,7 +30,7 @@ final class Migrator
     /** Crea la tabla de control si aun no existe. */
     public function ensureRegistry(): void
     {
-        $this->db->pdo()->exec(
+        $this->db->exec(
             'CREATE TABLE IF NOT EXISTS schema_migrations (
                 version     VARCHAR(20)  NOT NULL,
                 filename    VARCHAR(190) NOT NULL,
@@ -129,7 +129,7 @@ final class Migrator
 
             foreach ($statements as $statement) {
                 try {
-                    $this->db->pdo()->exec($statement);
+                    $this->db->exec($statement);
                     $applied++;
                 } catch (PDOException $e) {
                     throw new RuntimeException(sprintf(

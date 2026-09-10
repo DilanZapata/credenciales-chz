@@ -123,13 +123,14 @@ echo "  Aplicacion alcanzable en {$baseUrl}" . PHP_EOL;
 $container = require $root . '/app/bootstrap.php';
 $cfg       = \App\Core\Config::get('database');
 
-$dsn = !empty($cfg['socket'])
-    ? sprintf('mysql:unix_socket=%s;charset=utf8mb4', $cfg['socket'])
-    : sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $cfg['host'], (int) $cfg['port']);
-
-$pdo = new PDO($dsn, $cfg['username'], $cfg['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-$pdo->exec('DROP DATABASE IF EXISTS `credenciales_corp_test`');
-$pdo->exec('CREATE DATABASE `credenciales_corp_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+// Se crea con mysqli, como el resto del sistema tras la migracion.
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+$raiz = !empty($cfg['socket'])
+    ? new mysqli($cfg['host'], $cfg['username'], (string) $cfg['password'], null, (int) $cfg['port'], $cfg['socket'])
+    : new mysqli($cfg['host'], $cfg['username'], (string) $cfg['password'], null, (int) $cfg['port']);
+$raiz->query('DROP DATABASE IF EXISTS `credenciales_corp_test`');
+$raiz->query('CREATE DATABASE `credenciales_corp_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+$raiz->close();
 
 $db = Database::instance();
 

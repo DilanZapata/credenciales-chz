@@ -115,21 +115,21 @@ if ($command === 'install' || $command === 'migrate') {
     $database = (string) $cfg['database'];
 
     // Conexion sin base de datos seleccionada para poder crearla.
-    $dsn = !empty($cfg['socket'])
-        ? sprintf('mysql:unix_socket=%s;charset=utf8mb4', $cfg['socket'])
-        : sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $cfg['host'], (int) $cfg['port']);
-
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
     try {
-        $pdo = new PDO($dsn, $cfg['username'], $cfg['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    } catch (PDOException $e) {
+        $raiz = !empty($cfg['socket'])
+            ? new mysqli($cfg['host'], $cfg['username'], (string) $cfg['password'], null, (int) $cfg['port'], $cfg['socket'])
+            : new mysqli($cfg['host'], $cfg['username'], (string) $cfg['password'], null, (int) $cfg['port']);
+    } catch (Throwable $e) {
         fail('No fue posible conectar con MySQL/MariaDB. Revise config/database.php y el .env.');
         exit(1);
     }
 
-    $pdo->exec(sprintf(
+    $raiz->query(sprintf(
         'CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
         str_replace('`', '', $database)
     ));
+    $raiz->close();
     ok('Base de datos `' . $database . '` disponible.');
 
     $db       = Database::instance();
@@ -333,6 +333,7 @@ switch ($command) {
             'PHP >= 8.1'                  => version_compare(PHP_VERSION, '8.1.0', '>='),
             'Extension openssl'           => extension_loaded('openssl'),
             'AES-256-GCM disponible'      => in_array('aes-256-gcm', openssl_get_cipher_methods(), true),
+            'Extension mysqli'            => extension_loaded('mysqli'),
             'Extension pdo_mysql'         => extension_loaded('pdo_mysql'),
             'Extension zip (Excel)'       => class_exists('ZipArchive'),
             'Extension mbstring'          => extension_loaded('mbstring'),
@@ -428,7 +429,7 @@ switch ($command) {
         // TRUNCATE provoca un commit implicito en MySQL, de modo que no puede
         // envolverse en una transaccion: se ejecuta de forma secuencial con
         // las comprobaciones de clave ajena desactivadas.
-        $db->pdo()->exec('SET FOREIGN_KEY_CHECKS = 0');
+        $db->exec('SET FOREIGN_KEY_CHECKS = 0');
         foreach ([
             'export_report_items', 'export_reports', 'secret_access_log', 'credential_history',
             'credential_assignments', 'credential_secrets', 'credentials', 'systems',
@@ -436,13 +437,13 @@ switch ($command) {
             'password_resets', 'mfa_backup_codes', 'mfa_secrets', 'rate_limits',
             'departments', 'locations', 'companies',
         ] as $table) {
-            $db->pdo()->exec('TRUNCATE TABLE `' . $table . '`');
+            $db->exec('TRUNCATE TABLE `' . $table . '`');
         }
         $db->execute('DELETE FROM sessions WHERE user_id <> ?', [$keepId]);
         $db->execute('DELETE FROM user_permissions WHERE user_id <> ?', [$keepId]);
         $db->execute('DELETE FROM user_roles WHERE user_id <> ?', [$keepId]);
         $db->execute('DELETE FROM users WHERE id <> ?', [$keepId]);
-        $db->pdo()->exec('SET FOREIGN_KEY_CHECKS = 1');
+        $db->exec('SET FOREIGN_KEY_CHECKS = 1');
 
         // Contrasena temporal nueva para el superadministrador conservado.
         /** @var PasswordGeneratorService $generator */

@@ -30,8 +30,9 @@ until php -r '
     $d = getenv("DB_DATABASE") ?: "credenciales_corp";
     $u = getenv("DB_USERNAME") ?: "root";
     $w = getenv("DB_PASSWORD") ?: "";
-    try { new PDO("mysql:host=$h;port=$p;dbname=$d", $u, $w); exit(0); }
-    catch (Throwable $e) { exit(1); }
+    mysqli_report(MYSQLI_REPORT_OFF);
+    $c = @new mysqli($h, $u, $w, $d, $p);
+    exit($c->connect_errno ? 1 : 0);
 ' 2>/dev/null; do
     intentos=$((intentos + 1))
     if [ "$intentos" -ge 60 ]; then
