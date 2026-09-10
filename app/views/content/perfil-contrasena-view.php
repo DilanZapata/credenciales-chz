@@ -3,6 +3,11 @@
 
 $pageTitle = 'Cambiar contrasena';
 $forced = (int) ((usuarioActual()['must_change_password'] ?? 0)) === 1;
+
+// La longitud minima sale de la politica configurada, no de un numero
+// escrito a mano: si el administrador la sube, el aviso y la validacion
+// del navegador tienen que subir con ella.
+$minimo = \app\models\configuracionModel::entero('security.password_min_length', 12);
 ?>
 <div class="page-head">
   <div class="page-head__text">
@@ -28,12 +33,13 @@ $forced = (int) ((usuarioActual()['must_change_password'] ?? 0)) === 1;
       <div class="field">
         <label for="password">Nueva contrasena</label>
         <div class="row" style="flex-wrap:nowrap;gap:.35rem">
-          <input type="password" id="password" name="password" required autocomplete="new-password" maxlength="200">
+          <input type="password" id="password" name="password" required autocomplete="new-password"
+                 minlength="<?= (int) $minimo ?>" maxlength="200">
           <button type="button" class="btn btn--sm" data-toggle-field="password">Mostrar</button>
         </div>
         <div class="bar" data-strength-for="password"><span style="width:0"></span></div>
         <span class="hint" data-strength-label></span>
-        <span class="hint">Minimo 12 caracteres con mayusculas, minusculas, numeros y un caracter especial.</span>
+        <span class="hint">Minimo <?= (int) $minimo ?> caracteres con mayusculas, minusculas, numeros y un caracter especial.</span>
       </div>
       <div class="field">
         <label for="password_confirmation">Confirmar nueva contrasena</label>

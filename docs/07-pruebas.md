@@ -34,7 +34,7 @@ archivo marcador (`storage/testing.flag`) que `config/database.php` consulta
 fuera de producción: el proceso de pruebas no puede pasarle variables de
 entorno a Apache.
 
-## 7.2 Qué cubre (321 comprobaciones)
+## 7.2 Qué cubre (336 comprobaciones)
 
 | Grupo | Qué verifica |
 |---|---|
@@ -54,12 +54,13 @@ entorno a Apache.
 | **14. Endpoints** | Los 7 módulos exigen sesión; cada acción devuelve el sobre completo; ficha por identificador; 404 en identificador inexistente; acción desconocida con 400; escritura sin token rechazada con `csrf`; escritura válida auditada; normalización de un color con carga XSS; el consultor rechazado en 5 endpoints administrativos y en la matriz de roles; imposibilidad de cerrar la sesión propia; generación, descarga única y 404 en reporte ajeno; plantilla CSV; el endpoint de credenciales no devuelve el secreto |
 | **15. Ensamblado de vistas** | Las 27 páginas privadas se dibujan completas, con marco, hojas y guiones, y **sin un solo aviso de PHP ni rutas del servidor**; cada vista carga sólo sus recursos; las públicas se dibujan sin menú; dirección desconocida con 404; recurso inexistente con 404; el consultor rechazado por URL directa en 5 vistas; el panel lo lleva a "Mis accesos"; sin sesión, redirección al acceso |
 | **16. Superficie de la arquitectura** | Doce archivos internos (modelos, controladores, vistas, arranque, autocargador, configuración, consola) **no descargables por HTTP**; los recursos sí; una dirección de sólo lectura rechaza el POST; el despacho rechaza `DELETE`; el fallo de CSRF con `X-Csrf-Failure` y sin filtrar rutas; `redirect` no permite salir del sitio; CSP con nonce distinto en cada petición, `no-store` y `X-Frame-Options` |
+| **17. Los rechazos se explican** | Un envío rechazado vuelve **al formulario que lo produjo** (alta, edición, cambio de contraseña), con el motivo concreto a la vista; el aviso se consume y no reaparece; sobrevive a una redirección del portero; el campo declara `minlength` y la regla mostrada sigue a la política configurada |
 
 ## 7.3 Resultado
 
 ```
 ══════════════════════════════════════════════════════════════════════
-  TODAS LAS PRUEBAS SUPERADAS  (321/321)
+  TODAS LAS PRUEBAS SUPERADAS  (336/336)
 ══════════════════════════════════════════════════════════════════════
 ```
 

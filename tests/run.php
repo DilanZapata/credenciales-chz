@@ -1397,6 +1397,126 @@ $nonce2 = $sup->get('/credenciales')['headers']['Content-Security-Policy'] ?? ''
 $t->assert($nonce1 !== '' && $nonce1 !== $nonce2, 'El nonce de la CSP es distinto en cada peticion');
 
 // =====================================================================
+//  17. Los rechazos se explican
+// =====================================================================
+//
+//  Un formulario que falla en silencio es peor que uno que falla con un
+//  error feo: el usuario reintenta lo mismo sin saber que corregir.
+//
+//  Estas comprobaciones nacen de un fallo real: al escribir una
+//  contrasena que no cumplia la politica, la pagina se recargaba en
+//  blanco. Eran dos defectos encadenados.
+//
+//    1. El destino se sacaba del Referer, pero la aplicacion envia
+//       `Referrer-Policy: no-referrer`, asi que el navegador nunca lo
+//       manda y el usuario acababa en el panel.
+//    2. index.php consumia el aviso ANTES del portero. Con el cambio de
+//       contrasena obligatorio pendiente, el panel redirigia de vuelta al
+//       formulario y el mensaje se perdia por el camino.
+// =====================================================================
+$t->group('17. Los rechazos se explican');
+
+$clearLimits();
+
+// Usuario recien creado: entra con cambio de contrasena obligatorio, que
+// es justo el escenario donde se perdia el aviso.
+$hashNovato = cifradoModel::hashContrasena('Novato#Prueba2026!');
+$novatoId = mainModel::ejecutarInsert(
+    'INSERT INTO users (national_id, username, email, first_name, last_name,
+                        password_hash, password_algo, must_change_password, status)
+     VALUES (?,?,?,?,?,?,?,1,"active")',
+    ['900000009', 'novato.test', 'novato@test.local', 'Novato', 'Prueba',
+     $hashNovato['hash'], $hashNovato['algo']]
+);
+mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)',
+    [$novatoId, $roleIds['CONSULTOR']]);
+
+$nuevo = new HttpClient('198.51.100.50');
+$r = $nuevo->login('novato.test', 'Novato#Prueba2026!');
+$t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/perfil/contrasena'),
+    'Un usuario nuevo entra directo al cambio de contrasena', 'HTTP ' . $r['status']);
+
+// Sin Referer (que es lo que hace un navegador real con esta politica) el
+// rechazo debe devolver al MISMO formulario.
+$r = $nuevo->post('/perfil/contrasena', [
+    'current_password'      => 'Novato#Prueba2026!',
+    'password'              => 'corta1A#',
+    'password_confirmation' => 'corta1A#',
+]);
+$t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/perfil/contrasena'),
+    'Una contrasena que incumple la politica devuelve al formulario, no al panel',
+    $r['headers']['Location'] ?? '(sin destino)');
+
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(str_contains((string) $r['body'], 'alert--error'),
+    'El formulario explica por que se rechazo la contrasena');
+$t->assert(str_contains((string) $r['body'], '12 caracteres'),
+    'El aviso dice exactamente que regla se incumplio');
+$t->assert(str_contains((string) $r['body'], 'name="password_confirmation"'),
+    'El usuario se queda en el formulario para reintentar');
+
+// El formulario anuncia la regla ANTES de escribir, y el navegador la
+// aplica: lo ideal es que el rechazo del servidor no llegue a hacer falta.
+$t->assert(str_contains((string) $r['body'], 'minlength="12"'),
+    'El campo declara la longitud minima para que el navegador la exija');
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '16' WHERE setting_key = 'security.password_min_length'");
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(str_contains((string) $r['body'], 'minlength="16"')
+    && str_contains((string) $r['body'], 'Minimo 16 caracteres'),
+    'La regla mostrada sigue a la politica configurada, no a un numero fijo');
+mainModel::ejecutarConsultaAfectadas("UPDATE settings SET setting_value = '12' WHERE setting_key = 'security.password_min_length'");
+$t->equals(1, (int) mainModel::obtenerValor('SELECT must_change_password FROM users WHERE id = ?', [$novatoId]),
+    'La contrasena rechazada no se guardo');
+
+// El aviso NO sobrevive a la pagina que lo muestra: verlo dos veces haria
+// pensar que el segundo intento tambien fallo.
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(!str_contains((string) $r['body'], 'alert--error'),
+    'El aviso se consume: no reaparece en la siguiente recarga');
+
+// Un aviso emitido antes de una redireccion del portero tampoco se pierde.
+$r = $nuevo->post('/perfil/contrasena', [
+    'current_password'      => 'clave-que-no-es',
+    'password'              => 'Otra#Valida2026!',
+    'password_confirmation' => 'Otra#Valida2026!',
+]);
+$destino = str_replace('/credencial', '', (string) (parse_url($r['headers']['Location'] ?? '', PHP_URL_PATH) ?: ''));
+$r = $nuevo->get($destino === '' ? '/perfil/contrasena' : $destino);
+$t->assert(str_contains((string) $r['body'], 'alert--error'),
+    'Tambien se explica cuando la contrasena actual no coincide');
+
+// Con una contrasena valida si se acepta y se avisa del resultado.
+$r = $nuevo->post('/perfil/contrasena', [
+    'current_password'      => 'Novato#Prueba2026!',
+    'password'              => 'Valida#Nueva2026!',
+    'password_confirmation' => 'Valida#Nueva2026!',
+]);
+$t->assert($r['status'] === 302, 'Una contrasena valida se acepta', 'HTTP ' . $r['status']);
+$t->equals(0, (int) mainModel::obtenerValor('SELECT must_change_password FROM users WHERE id = ?', [$novatoId]),
+    'La marca de cambio obligatorio se retira');
+
+// Lo mismo en un formulario de alta: el rechazo vuelve al formulario.
+$clearLimits();
+$altas = new HttpClient('198.51.100.51');
+$altas->login('admin.test', PASS_ADMIN);
+$r = $altas->post('/credenciales', ['name' => 'X']);   // sin sistema ni nombre valido
+$t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/credenciales/nueva'),
+    'Un alta rechazada vuelve al formulario de alta, no al listado',
+    $r['headers']['Location'] ?? '(sin destino)');
+$r = $altas->get('/credenciales/nueva');
+$t->assert(str_contains((string) $r['body'], 'alert--error'),
+    'El formulario de alta explica que datos faltan');
+
+// Y en una edicion, al formulario del registro concreto.
+$r = $altas->post('/credenciales/' . $credA['id'], ['name' => '']);
+$t->assert($r['status'] === 302
+    && str_contains($r['headers']['Location'] ?? '', '/credenciales/' . $credA['id'] . '/editar'),
+    'Una edicion rechazada vuelve al formulario de ese registro',
+    $r['headers']['Location'] ?? '(sin destino)');
+
+mainModel::ejecutarConsultaAfectadas('DELETE FROM users WHERE id = ?', [$novatoId]);
+
+// =====================================================================
 //  Resumen
 // =====================================================================
 exit($t->summary());

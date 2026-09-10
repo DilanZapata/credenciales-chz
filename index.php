@@ -57,17 +57,22 @@ if ($metodo === 'GET' && !$vistaInfo['encontrada']) {
     require __DIR__ . '/app/descargas.php';
 }
 
-Flash::cargarDeCookie();
-Flash::expirarCookie();
-
 // ---------------------------------------------------------------------
 //  Portero: sesion, segundo factor y cambio de contrasena obligatorio
 // ---------------------------------------------------------------------
+// Va ANTES de tocar los avisos: si aqui se redirige, esta pagina no llega
+// a dibujarse y consumir el mensaje lo haria desaparecer sin que nadie lo
+// leyera. Es lo que ocurria al rechazar una contrasena que no cumple la
+// politica: el formulario se recargaba en blanco.
 $destino = accesoMiddleware::revisar($rutaSolicitada, $vistaInfo['publica']);
 if ($destino !== null) {
     header('Location: ' . $destino, true, 302);
     exit;
 }
+
+// El aviso se consume aqui, ya con la certeza de que la pagina se dibuja.
+Flash::cargarDeCookie();
+Flash::expirarCookie();
 
 // ---------------------------------------------------------------------
 //  Contenido de la vista

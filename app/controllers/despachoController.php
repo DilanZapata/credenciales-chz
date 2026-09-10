@@ -41,6 +41,16 @@ class despachoController extends baseController
     private const PUBLICAS = ['/entrar', '/recuperar', '/restablecer', '/mfa/verificar'];
 
     /**
+     * Pagina a la que se devuelve al usuario cuando el envio se rechaza.
+     *
+     * NO se deduce del Referer: la aplicacion envia
+     * `Referrer-Policy: no-referrer`, asi que el navegador no lo manda y
+     * el usuario acababa en el panel sin entender que habia pasado. Cada
+     * ruta declara aqui de donde viene su formulario.
+     */
+    private static string $origen = '/';
+
+    /**
      * Atiende la peticion y termina. No devuelve nunca.
      *
      * @param array<string,mixed> $cuerpo
@@ -58,6 +68,7 @@ class despachoController extends baseController
         }
 
         [$patron, $parametros] = viewsModel::patron($ruta);
+        self::$origen = self::origenDelFormulario($patron, $parametros);
 
         if (!in_array($patron, self::PUBLICAS, true) && !contextoModel::autenticado()) {
             self::error('Su sesion expiro. Vuelva a iniciar sesion.');
@@ -78,7 +89,7 @@ class despachoController extends baseController
             // de origen, con el detalle de cada campo.
             Flash::set('errors', $e->errors());
             self::error(implode(' ', $e->errors()));
-            self::salir(self::atras('/'));
+            self::salir(self::$origen);
         } catch (ReauthRequiredException $e) {
             self::paginaError(423, 'Confirmacion requerida', $e->getMessage());
         } catch (HttpException $e) {
@@ -143,7 +154,7 @@ class despachoController extends baseController
                     'Verificacion en dos pasos desactivada.', '/perfil/mfa');
 
             case '/notificaciones/{id}/leida':
-                self::resultado(perfilController::marcarLeidaController($id), null, self::atras('/notificaciones'));
+                self::resultado(perfilController::marcarLeidaController($id), null, '/notificaciones');
 
             // ---------------------- Credenciales ----------------------
             case '/credenciales':
@@ -237,8 +248,7 @@ class despachoController extends baseController
 
             case '/sesiones/usuario/{id}/cerrar':
                 $r = sesionController::revocarUsuarioController($id);
-                self::resultado($r, ((int) ($r['data']['closed'] ?? 0)) . ' sesion(es) cerradas.',
-                    self::atras('/sesiones'));
+                self::resultado($r, ((int) ($r['data']['closed'] ?? 0)) . ' sesion(es) cerradas.', '/sesiones');
 
             // ------------------------ Reportes ------------------------
             case '/reportes/generar':  self::generarReporte($c);
@@ -453,7 +463,7 @@ class despachoController extends baseController
             if (isset($r['errors']) && is_array($r['errors'])) {
                 Flash::set('errors', $r['errors']);
                 self::error((string) $r['message']);
-                self::salir(self::atras('/'));
+                self::salir(self::$origen);
             }
             self::paginaError($codigo, self::tituloError($codigo), (string) $r['message']);
         }
@@ -527,25 +537,64 @@ class despachoController extends baseController
         }
     }
 
-    /** Vuelve a la pagina de origen, si es del propio sitio. */
-    private static function atras(string $porDefecto): string
+    /**
+     * Pagina de la que viene cada formulario.
+     *
+     * @param array<int,string> $p parametros de la ruta
+     */
+    private static function origenDelFormulario(string $patron, array $p): string
     {
-        $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
-        if ($referer === '') {
-            return $porDefecto;
-        }
-        $host = parse_url($referer, PHP_URL_HOST);
-        $mio  = parse_url((string) Config::get('app.url', ''), PHP_URL_HOST);
-        if ($host === null || $mio === null || strcasecmp((string) $host, (string) $mio) !== 0) {
-            return $porDefecto;
-        }
-        $ruta = (string) (parse_url($referer, PHP_URL_PATH) ?: '/');
-        $base = (string) Config::get('app.base_path', '');
-        if ($base !== '' && str_starts_with($ruta, $base)) {
-            $ruta = substr($ruta, strlen($base));
-        }
-        $consulta = parse_url($referer, PHP_URL_QUERY);
-        return ($ruta === '' ? '/' : $ruta) . ($consulta ? '?' . $consulta : '');
+        $id  = (int) ($p[0] ?? 0);
+
+        return match ($patron) {
+            // Altas: se vuelve al formulario vacio, con lo escrito perdido
+            // pero con el motivo del rechazo a la vista.
+            '/credenciales'  => '/credenciales/nueva',
+            '/sistemas'      => '/sistemas/nuevo',
+            '/usuarios'      => '/usuarios/nuevo',
+
+            // Ediciones: al formulario del registro que se intentaba tocar.
+            '/credenciales/{id}' => '/credenciales/' . $id . '/editar',
+            '/sistemas/{id}'     => '/sistemas/' . $id . '/editar',
+            '/usuarios/{id}'     => '/usuarios/' . $id . '/editar',
+
+            // Acciones sobre un registro concreto: a su ficha.
+            '/credenciales/{id}/rotar',
+            '/credenciales/{id}/eliminar',
+            '/credenciales/{id}/restaurar',
+            '/credenciales/{id}/asignar',
+            '/credenciales/{id}/revocar/{id}' => '/credenciales/' . $id,
+            '/sistemas/{id}/archivar'         => '/sistemas/' . $id,
+            '/usuarios/{id}/permisos',
+            '/usuarios/{id}/desactivar',
+            '/usuarios/{id}/reactivar',
+            '/usuarios/{id}/restablecer'      => '/usuarios/' . $id,
+
+            '/notificaciones/{id}/leida'      => '/notificaciones',
+            '/seguridad/eventos/{id}/resolver'=> '/seguridad/eventos',
+            '/sesiones/{token}/cerrar',
+            '/sesiones/usuario/{id}/cerrar'   => '/sesiones',
+
+            '/perfil/mfa/iniciar',
+            '/perfil/mfa/confirmar',
+            '/perfil/mfa/desactivar'          => '/perfil/mfa',
+
+            '/admin/empresas',
+            '/admin/sedes',
+            '/admin/departamentos'            => '/admin/organizacion',
+            '/admin/roles/{id}/permisos'      => '/admin/roles',
+
+            '/importar/previa',
+            '/importar/ejecutar'              => '/importar',
+
+            '/reportes/generar',
+            '/reportes/seleccion'             => '/reportes',
+
+            // El resto envia a la misma pagina en la que vive su formulario
+            // (/perfil/contrasena, /admin/categorias, /admin/roles,
+            //  /admin/configuracion, /entrar, /recuperar…).
+            default => $patron,
+        };
     }
 
     private static function destinoSeguro(string $ruta): string
