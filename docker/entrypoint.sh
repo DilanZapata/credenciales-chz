@@ -60,5 +60,33 @@ php bin/console.php doctor || true
 chown -R www-data:www-data storage
 chmod -R 750 storage
 
+# ---------------------------------------------------------------------
+#  Tareas programadas dentro de este mismo contenedor
+# ---------------------------------------------------------------------
+#  Solo si APP_SCHEDULER=true. En el despliegue con Compose hay un
+#  contenedor "cron" aparte y esto queda apagado; en un despliegue de un
+#  solo contenedor (tipo "Application" de Dokploy) no lo hay, y sin estas
+#  tareas los Excel exportados con contrasenas reales se quedan en el
+#  servidor para siempre: el barrido que los borra es justo "maintenance".
+#
+#  Un proceso de fondo en el contenedor de la aplicacion no es lo ideal,
+#  pero la alternativa aqui no es un contenedor dedicado: es no tener
+#  mantenimiento.
+if [ "${APP_SCHEDULER:-false}" = "true" ]; then
+    echo "==> Tareas programadas activadas dentro de este contenedor"
+    su -s /bin/bash www-data -c '
+        ultima_alerta=""
+        while true; do
+            php /var/www/html/bin/console.php maintenance >/dev/null 2>&1 || true
+            hoy=$(date +%F)
+            if [ "$(date +%H)" = "07" ] && [ "$ultima_alerta" != "$hoy" ]; then
+                php /var/www/html/bin/console.php alerts:run || true
+                ultima_alerta="$hoy"
+            fi
+            sleep 600
+        done
+    ' &
+fi
+
 echo "==> Listo. Iniciando Apache."
 exec "$@"

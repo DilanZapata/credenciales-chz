@@ -253,3 +253,63 @@ php bin/console.php migrate:status
 | `APP_MASTER_KEY invalida: se esperan 32 bytes en base64` | La variable se pegó con comillas, con espacios o recortada | Debe ser **44 caracteres terminados en `=`**, sin comillas. El `=` final forma parte de la clave |
 | `Unable to load dynamic library 'zip'` | Imagen construida con caché de una versión defectuosa | *Deploy* con **Clean Cache** activado |
 | `Could not open input file: bin/console.php` | La terminal abre en `/` | `cd /var/www/html` antes del comando |
+
+---
+
+## Despliegue como aplicación de un solo contenedor
+
+Dokploy ofrece dos tipos de servicio y los dos sirven. La diferencia
+práctica está en las tareas programadas.
+
+| | **Compose** | **Application** |
+|---|---|---|
+| Archivo | `docker-compose.yml` o `docker-compose.bd-externa.yml` | solo `Dockerfile` |
+| Contenedores | app + cron (+ base, según el archivo) | uno |
+| Tareas programadas | contenedor `cron` dedicado | dentro del mismo contenedor, con `APP_SCHEDULER=true` |
+
+### Configuración del tipo *Application*
+
+| Campo | Valor |
+|---|---|
+| Build Type | Dockerfile |
+| Dockerfile Path | `Dockerfile` |
+| Container Port (en *Domains*) | **80** — no 3000 |
+| Mount (en *Advanced → Volumes*) | volumen persistente en `/var/www/html/storage` |
+
+Variables de entorno mínimas:
+
+```
+APP_URL=https://credenciales.suempresa.com
+APP_BASE_PATH=
+APP_ENV=production
+APP_DEBUG=false
+APP_TRUST_PROXY=true
+SESSION_SECURE=true
+APP_MASTER_KEY=<32 bytes en base64>
+APP_PEPPER=<32 bytes en base64>
+APP_SCHEDULER=true
+DB_HOST=<Internal Host del servicio de base de datos>
+DB_PORT=3306
+DB_DATABASE=credenciales_corp
+DB_USERNAME=credenciales
+DB_PASSWORD=<la del servicio de base de datos>
+```
+
+### Por qué `APP_SCHEDULER=true` no es opcional aquí
+
+Sin él no corre `maintenance`, y ese es el barrido que **borra del servidor
+los Excel exportados** una vez vencida su ventana de descarga. Esos
+archivos pueden contener contraseñas reales en claro: dejarlos acumularse
+en disco anula buena parte del control de acceso del sistema. Tampoco
+correría `alerts:run`, así que nadie recibiría los avisos de credenciales
+vencidas o sin responsable.
+
+En el despliegue con Compose hay un contenedor `cron` dedicado y la
+variable debe quedar apagada, para no ejecutar el mantenimiento dos veces.
+
+### El volumen de `storage/`
+
+Sin un volumen persistente, cada redespliegue borra los registros técnicos
+y cualquier exportación en curso. No se pierden datos del inventario —eso
+vive en la base—, pero sí la trazabilidad técnica de lo ocurrido entre
+despliegues.
