@@ -20,6 +20,14 @@ RewriteRule ^([a-zA-Z0-9/ñÑ_-]+)$ index.php?views=$1 [QSA,L]
     Require all denied
 </FilesMatch>
 
+# En la raiz solo se sirve el controlador frontal. El autocargador se
+# incluye desde PHP y no tiene por que ser alcanzable por la red.
+# (La regla va por nombre: un FilesMatch generico sobre *.php se heredaria
+#  en app/api/ y dejaria los endpoints fuera de servicio.)
+<Files "autoload.php">
+    Require all denied
+</Files>
+
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"

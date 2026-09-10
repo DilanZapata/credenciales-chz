@@ -16,20 +16,20 @@ de una contraseña deja rastro de quién, cuándo y desde dónde**.
 > **La información de una credencial y el secreto de una credencial son cosas
 > distintas y tienen controles distintos.**
 
-- `GET /api/v1/credenciales` **nunca** devuelve contraseñas.
-- El texto en claro sólo se obtiene mediante una operación específica
-  (`POST /api/v1/credenciales/{id}/secreto`) que exige, en este orden:
-  permiso → asignación vigente → reautenticación reciente → límite de
-  frecuencia → registro de auditoría.
+- `app/api/credenciales-api.php` **nunca** devuelve contraseñas.
+- El texto en claro sólo se obtiene por un endpoint dedicado
+  (`app/api/secretos-api.php?accion=revelar`) que exige, en este orden:
+  permiso → asignación vigente → permiso fino de la asignación → límite de
+  frecuencia → reautenticación reciente → registro de auditoría.
 
 ---
 
 ## Requisitos
 
-PHP 8.1+ (`openssl`, `pdo_mysql`, `mbstring`, `zip`) · **MySQL 5.7+ o MariaDB 10.3+** ·
+PHP 8.1+ (`openssl`, `mysqli`, `mbstring`, `zip`) · **MySQL 5.7+ o MariaDB 10.3+** ·
 Apache con `mod_rewrite` y `mod_headers`, o Nginx.
 
-> La base de datos **debe ser MySQL o MariaDB**. El esquema y los repositorios usan
+> La base de datos **debe ser MySQL o MariaDB**. El esquema y los modelos usan
 > sintaxis propia de MySQL (`ON DUPLICATE KEY UPDATE`, `FULLTEXT`, `VARBINARY`,
 > `GROUP_CONCAT`…). No es intercambiable por PostgreSQL sin reescribir la capa de datos.
 
@@ -43,7 +43,7 @@ php bin/console.php install          # base de datos, esquema y superadministrad
 php bin/console.php doctor           # diagnóstico de la instalación
 ```
 
-Abrir `http://localhost/credencial/public/` e iniciar sesión con el usuario y la
+Abrir `http://localhost/credencial/` e iniciar sesión con el usuario y la
 contraseña temporal que imprimió el instalador.
 
 Para cargar datos de ejemplo en un entorno de pruebas:
@@ -85,9 +85,10 @@ php tests/run.php
 | [docs/03-administracion.md](docs/03-administracion.md) | Manual del administrador: usuarios, credenciales, reportes, bajas |
 | [docs/04-seguridad.md](docs/04-seguridad.md) | Políticas de seguridad, modelo de amenazas y auditoría realizada |
 | [docs/05-arquitectura.md](docs/05-arquitectura.md) | Arquitectura, modelo de datos y decisiones de diseño |
-| [docs/06-api.md](docs/06-api.md) | Referencia de la API v1 |
+| [docs/06-api.md](docs/06-api.md) | Referencia de los endpoints JSON |
 | [docs/07-pruebas.md](docs/07-pruebas.md) | Qué verifica cada prueba y cómo ampliarlas |
 | [docs/08-despliegue.md](docs/08-despliegue.md) | **Despliegue en Dokploy con Docker, migraciones y respaldos** |
+| [docs/09-migracion-arquitectura.md](docs/09-migracion-arquitectura.md) | Análisis y registro de la migración a la arquitectura de Porcify Manager |
 
 ---
 
@@ -101,7 +102,7 @@ php tests/run.php
 | **Consultor** | Ver y copiar únicamente las credenciales que le fueron asignadas | Modificar nada, exportar, ver credenciales ajenas |
 
 Los roles son sólo un envoltorio: el control real es una **matriz de permisos
-granulares** (42 permisos) editable desde la interfaz, con excepciones
+granulares** (41 permisos) editable desde la interfaz, con excepciones
 individuales por usuario donde una denegación siempre prevalece.
 
 ---
@@ -110,36 +111,50 @@ individuales por usuario donde una denegación siempre prevalece.
 
 ```
 credencial/
-├── public/            ← único directorio expuesto por el servidor web
-│   ├── index.php      ← controlador frontal
-│   └── assets/        ← CSS y JavaScript
+├── index.php          ← controlador frontal: dibuja las páginas
+├── autoload.php       ← autocarga por convención de nombres (sin Composer)
+├── .htaccess          ← reescritura de URL y protección del árbol interno
 ├── app/
-│   ├── Core/          ← núcleo HTTP: enrutador, petición, respuesta, vistas, BD
-│   ├── Http/          ← controladores web y de API, middleware
-│   ├── Services/      ← lógica de negocio (cripto, auth, credenciales, exportación…)
-│   ├── Repositories/  ← acceso a datos con sentencias preparadas
-│   ├── Support/       ← utilidades (escritor XLSX, helpers de vista)
-│   └── Views/         ← plantillas
+│   ├── api/           ← un endpoint JSON por módulo (*-api.php)
+│   ├── controllers/   ← un controlador por módulo, métodos estáticos
+│   ├── models/        ← reglas de negocio, autorización y SQL, sobre mainModel
+│   ├── middlewares/   ← portero de acceso a las vistas
+│   ├── views/
+│   │   ├── content/   ← una vista por pantalla (*-view.php)
+│   │   ├── inc/       ← head, menú lateral, barra superior, guiones
+│   │   ├── partials/  ← fragmentos reutilizables
+│   │   └── css/ js/   ← recursos por módulo, registrados en viewsModel
+│   ├── descargas.php  ← entrega de archivos generados (XLSX, plantilla CSV)
+│   ├── Core/          ← infraestructura: configuración, entorno, registro,
+│   │                     plantillas, avisos, CSRF, validación, excepciones
+│   └── Support/       ← migrador versionado, escritor XLSX, ayudantes de vista
 ├── config/            ← configuración estática
-├── database/          ← esquema, datos de referencia y datos de demostración
+├── database/          ← migraciones versionadas y datos de demostración
 ├── storage/           ← logs y archivos exportados (FUERA del webroot)
-├── database/migrations/ ← migraciones versionadas (se aplican solas al desplegar)
 ├── Dockerfile         ← imagen de producción PHP 8.2 + Apache
 ├── docker-compose.yml ← despliegue en Dokploy: app + MariaDB + cron
 ├── bin/console.php    ← consola de administración
-├── tests/run.php      ← 209 pruebas funcionales y de seguridad
+├── tests/run.php      ← 294 pruebas funcionales y de seguridad por HTTP real
 ├── docs/              ← documentación
 └── .env               ← clave maestra y credenciales de BD (nunca versionar)
 ```
+
+La arquitectura sigue el patrón de **Porcify Manager**: dos puntos de entrada
+(`index.php` para las páginas, `app/api/*-api.php` para las operaciones),
+modelos estáticos con el SQL dentro y autocarga por convención. Los detalles
+y el porqué de cada desviación están en
+[docs/05-arquitectura.md](docs/05-arquitectura.md).
 
 ---
 
 ## Estado de las pruebas
 
 ```
-209/209 pruebas superadas
+294/294 pruebas superadas
 ```
 
-Cubren autenticación, autorización, IDOR, CSRF, XSS, inyección SQL, cifrado,
-step-up, rotación, historial, bajas de personal, sesiones, exportación,
-auditoría, políticas de contraseña y alertas.
+Se ejecutan **por HTTP real** contra la aplicación servida por Apache, sobre
+una base de datos independiente. Cubren autenticación, autorización, IDOR,
+CSRF, XSS, inyección SQL, cifrado, step-up, rotación, historial, bajas de
+personal, sesiones, exportación, auditoría, políticas de contraseña, alertas,
+los once endpoints JSON y el dibujado de las 31 vistas.

@@ -9,20 +9,32 @@ modo que **no toca los datos reales**.
 
 ## 7.1 Cómo están construidas
 
-`tests/TestClient.php` es un cliente HTTP **en proceso**: construye una
-`Request` real y la pasa por el `Kernel` completo —enrutado, middleware,
-controlador, servicios, base de datos— exactamente igual que una petición del
-navegador.
+`tests/HttpClient.php` habla **por HTTP real** con la aplicación servida por
+Apache: cURL, cookies, cabeceras y códigos de estado, exactamente igual que
+una petición del navegador.
 
-Esto es deliberado: si las pruebas invocaran los servicios directamente,
-verificarían la lógica pero **no** que las rutas tengan el middleware correcto.
-Al pasar por el núcleo, una ruta a la que se le olvide el permiso falla la
-prueba.
+Esto es deliberado. Si las pruebas invocaran los modelos directamente,
+verificarían la lógica pero **no** que el endpoint exija sesión, que el
+formulario valide el token o que la vista compruebe el permiso. Al entrar
+por la puerta, una acción a la que se le olvide una barrera falla la prueba.
 
-Cada petición construye un contenedor nuevo, de forma que el contexto de
-seguridad no se filtra entre llamadas.
+Fue además lo que permitió migrar la arquitectura sin romper nada: la misma
+batería validaba el sistema antes y después de cada fase, porque no conoce
+la estructura interna, sólo las direcciones y las respuestas.
 
-## 7.2 Qué cubre (209 comprobaciones)
+Apache debe estar encendido. Si la aplicación no está en
+`http://localhost/credencial`, indíquelo con:
+
+```bash
+TEST_BASE_URL=http://mi-host/ruta php tests/run.php
+```
+
+Las peticiones se atienden contra `credenciales_corp_test` gracias a un
+archivo marcador (`storage/testing.flag`) que `config/database.php` consulta
+fuera de producción: el proceso de pruebas no puede pasarle variables de
+entorno a Apache.
+
+## 7.2 Qué cubre (294 comprobaciones)
 
 | Grupo | Qué verifica |
 |---|---|
@@ -39,21 +51,23 @@ seguridad no se filtra entre llamadas.
 | **11. Políticas** | Rechazo de contraseña corta, rechazo de contraseña con datos personales, generador (longitud, variedad, no repetición), **imposibilidad de auto-asignarse un rol superior**, **imposibilidad de conceder un permiso propio inexistente**, MFA obligatorio para administradores, TOTP válido/inválido/caducado, ausencia de open redirect, errores sin rutas ni SQL ni trazas, método no permitido, cierre de sesión efectivo |
 | **12. Alertas** | Detección de vencidas, sin responsable, usuarios inactivos con accesos, exceso de fallos; despacho a notificaciones; **deduplicación diaria** |
 | **13. Revisión de seguridad** | Permiso `export.reports` exigible por separado; auditor exportando inventario; **caducidad de la contraseña de acceso**; escritura con origen propio; el generador no deja rastro del valor producido |
+| **14. Endpoints** | Los 7 módulos exigen sesión; cada acción devuelve el sobre completo; ficha por identificador; 404 en identificador inexistente; acción desconocida con 400; escritura sin token rechazada con `csrf`; escritura válida auditada; normalización de un color con carga XSS; el consultor rechazado en 5 endpoints administrativos y en la matriz de roles; imposibilidad de cerrar la sesión propia; generación, descarga única y 404 en reporte ajeno; plantilla CSV; el endpoint de credenciales no devuelve el secreto |
+| **15. Ensamblado de vistas** | Las 27 páginas privadas se dibujan completas, con marco, hojas y guiones, y **sin un solo aviso de PHP ni rutas del servidor**; cada vista carga sólo sus recursos; las públicas se dibujan sin menú; dirección desconocida con 404; recurso inexistente con 404; el consultor rechazado por URL directa en 5 vistas; el panel lo lleva a "Mis accesos"; sin sesión, redirección al acceso |
 
 ## 7.3 Resultado
 
 ```
 ══════════════════════════════════════════════════════════════════════
-  TODAS LAS PRUEBAS SUPERADAS  (209/209)
+  TODAS LAS PRUEBAS SUPERADAS  (294/294)
 ══════════════════════════════════════════════════════════════════════
 ```
 
 ## 7.4 Añadir pruebas
 
 ```php
-$t->group('13. Mi nueva área');
+$t->group('16. Mi nueva área');
 
-$cliente = new TestClient('198.51.100.20');
+$cliente = new HttpClient('198.51.100.20');
 $cliente->login('admin.test', PASS_ADMIN);
 
 $r = $cliente->get('/mi-ruta');

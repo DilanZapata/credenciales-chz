@@ -1,0 +1,3 @@
+# Comprobaciones de la imagen: se ejecutan en el arranque del contenedor,
+# nunca por HTTP.
+Require all denied

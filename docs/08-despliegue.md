@@ -177,7 +177,7 @@ Entre al dominio, cambie la contraseña y configure la verificación en dos paso
 
 | Servicio | Función | Expuesto |
 |---|---|---|
-| `app` | PHP 8.2 + Apache, `DocumentRoot` en `public/` | Sí, vía Traefik |
+| `app` | PHP 8.2 + Apache, `DocumentRoot` en la raíz del proyecto | Sí, vía Traefik |
 | `db` | MariaDB 11.4 | **No.** Solo la alcanza `app` por la red interna |
 | `cron` | `maintenance` cada 10 min y `alerts:run` a las 07:00 | No |
 
@@ -195,7 +195,7 @@ abandonado**: barre `storage/exports/` por antigüedad.
 
 ## 8.7 Endurecimiento aplicado en la imagen
 
-- `DocumentRoot` en `public/`; el resto del proyecto está denegado en Apache.
+- `DocumentRoot` en la raíz, como en la referencia; el árbol interno queda denegado por los `.htaccess` de cada directorio y sólo se sirven `index.php`, `app/api/*-api.php` y `app/views/{css,js,img}`.
 - El `.env` **se borra de la imagen**: la configuración entra por variables de entorno.
 - `storage/` con propietario `www-data` y permisos `750`.
 - Archivos PHP en `640`, directorios en `750`.
@@ -244,7 +244,7 @@ php bin/console.php migrate:status
 | `APP_MASTER_KEY no esta definida` y el contenedor no arranca | Falta la variable en Dokploy | Añádala en *Environment* y redespliegue |
 | Entra pero cierra sesión al instante | Falta HTTPS con `SESSION_SECURE=true` | Active el dominio con TLS en Dokploy |
 | `419 La sesion del formulario expiro` | `APP_URL` no coincide con el dominio real | Corrija `APP_URL` |
-| Los enlaces apuntan a `/credencial/public/...` | `APP_BASE_PATH` con valor | Debe ir **vacío** con dominio propio |
+| Los enlaces apuntan a `/credencial/...` | `APP_BASE_PATH` con valor | Debe ir **vacío** con dominio propio |
 | `No fue posible conectar con la base de datos` | Contraseña distinta entre `app` y `db` | `DB_PASSWORD` debe ser la misma para ambos |
 | Se ve la IP real como `172.x` en la auditoría | Falta confiar en el proxy | `APP_TRUST_PROXY=true` (ya viene en el compose) |
 | **`404 page not found` con certificado «TRAEFIK DEFAULT CERT»** | Traefik no tiene ninguna ruta para ese host: o el servicio `app` no está en la red `dokploy-network`, o el contenedor no llegó a arrancar | El compose ya declara `dokploy-network`. Compruebe en *Containers* que `app` está **running** y revise los *Logs* |

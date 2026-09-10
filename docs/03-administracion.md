@@ -233,7 +233,7 @@ descarga de reportes ajenos y fallos de CSRF.
 
 ## 3.11 Roles y permisos
 
-*Roles y permisos* muestra la matriz completa: 42 permisos agrupados por área.
+*Roles y permisos* muestra la matriz completa: 41 permisos agrupados por área.
 Puede crear roles propios (por ejemplo *Supervisor de TI*) y ajustar la matriz.
 
 Dos límites que el sistema impone siempre, incluso por API:

@@ -20,8 +20,8 @@ Hay dos niveles de configuración, deliberadamente separados:
 | `APP_ORGANIZATION` | Mi Empresa | Nombre de la organización |
 | `APP_ENV` | production | Entorno |
 | `APP_DEBUG` | false | **Nunca `true` en producción**: expone mensajes internos |
-| `APP_URL` | http://localhost/credencial/public | URL base; se usa para validar el `Origin` |
-| `APP_BASE_PATH` | /credencial/public | Prefijo de las rutas; vacío si hay VirtualHost propio |
+| `APP_URL` | http://localhost/credencial | URL base; se usa para validar el `Origin` |
+| `APP_BASE_PATH` | /credencial | Prefijo de las rutas; vacío si hay VirtualHost propio |
 | `APP_TIMEZONE` | America/Bogota | Zona horaria de fechas y auditoría |
 | `APP_TRUST_PROXY` | false | Sólo `true` detrás de un proxy inverso de confianza |
 

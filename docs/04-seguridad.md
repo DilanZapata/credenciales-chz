@@ -17,7 +17,7 @@ Los metadatos (sistema, usuario, URL, responsable, fechas) viven en la tabla
 Los secretos viven **exclusivamente** en `credential_secrets`, cifrados, y sólo
 se obtienen a través de una operación específica que atraviesa cinco barreras.
 
-Consecuencia práctica: `GET /api/v1/credenciales` no devuelve contraseñas
+Consecuencia práctica: `credenciales-api.php?accion=listar` no devuelve contraseñas
 **nunca**, ni siquiera para el superadministrador. No es una omisión de la
 interfaz: es la arquitectura.
 
@@ -137,14 +137,15 @@ siquiera que el recurso exista. El intento queda auditado.
 ### Defensa en profundidad
 
 Cada operación se autoriza **dos veces**: en el middleware de ruta y de nuevo
-en el servicio. Ninguna capa confía en la anterior. Si mañana alguien añade una
-ruta y olvida el `perm:`, el servicio sigue negando.
+en el modelo. Ninguna capa confía en la anterior: si mañana alguien añade una
+acción a un endpoint y olvida comprobar el permiso, `permisoModel` sigue
+negando desde dentro del modelo.
 
 ---
 
 ## 4.5 Acceso a un secreto: las cinco barreras
 
-`POST /api/v1/credenciales/{id}/secreto` atraviesa, en orden:
+`secretos-api.php?accion=revelar&id={id}` atraviesa, en orden:
 
 1. **Permiso funcional** (`credentials.secret.view` / `.copy` / `.history`).
 2. **Alcance de datos**: la credencial debe existir dentro de su ámbito.
@@ -172,7 +173,7 @@ también al cambiar de pestaña. El portapapeles se limpia a los 45 segundos.
 | **A02 Cryptographic Failures** | AES-256-GCM con envelope encryption, HKDF, bcrypt+pimienta, HTTPS + HSTS, cookies `Secure`/`HttpOnly`/`SameSite=Strict` |
 | **A03 Injection** | 100 % sentencias preparadas sin emulación; identificadores dinámicos (ORDER BY) contra lista blanca; escape de comodines en `LIKE`; neutralización de fórmulas en el Excel generado |
 | **A04 Insecure Design** | Separación información/secreto, step-up, mínimo privilegio, baja lógica, trazabilidad completa |
-| **A05 Security Misconfiguration** | Sólo `public/` expuesto; `.htaccess` de denegación en cada directorio interno; cabeceras de seguridad; `display_errors` off; `doctor` verifica la instalación |
+| **A05 Security Misconfiguration** | `app/.htaccess` niega todo el árbol y cada directorio declara sus excepciones (endpoints y recursos); cabeceras de seguridad; `display_errors` off; `doctor` verifica la instalación |
 | **A06 Componentes vulnerables** | **Cero dependencias de terceros.** Sin Composer en tiempo de ejecución: no hay árbol de dependencias que parchear |
 | **A07 Identification & Auth Failures** | MFA, bloqueo, limitador, rotación de sesión, doble caducidad, cierre remoto |
 | **A08 Software & Data Integrity** | GCM autentica cada criptograma; el AAD lo ata a su ubicación; CSP con nonce |

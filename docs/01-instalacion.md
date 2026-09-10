@@ -18,7 +18,7 @@
 
 ### Paso 1 — Colocar el código
 
-El proyecto debe quedar en una ruta donde **sólo `public/` sea accesible por
+El proyecto debe quedar en una ruta donde **sólo el controlador frontal y los recursos sean accesibles por
 HTTP**. En XAMPP:
 
 ```bash
@@ -34,8 +34,8 @@ cp .env.example .env
 Editar `.env` con los datos de la base de datos y la URL de la aplicación:
 
 ```ini
-APP_URL=http://localhost/credencial/public
-APP_BASE_PATH=/credencial/public
+APP_URL=http://localhost/credencial
+APP_BASE_PATH=/credencial
 DB_DATABASE=credenciales_corp
 DB_USERNAME=root
 DB_PASSWORD=
@@ -67,8 +67,9 @@ Genera `APP_MASTER_KEY` (32 bytes aleatorios en base64) y `APP_PEPPER`.
 php bin/console.php install
 ```
 
-Crea la base de datos si no existe, aplica `database/schema.sql` (29 tablas) y
-`database/seed.sql` (42 permisos, 4 roles, 12 categorías, 18 parámetros), inicia
+Crea la base de datos si no existe, aplica las migraciones de
+`database/migrations/` (29 tablas) y
+los datos de referencia (41 permisos, 4 roles, 12 categorías, 18 parámetros), inicia
 el llavero de cifrado y solicita los datos del superadministrador.
 
 Al terminar imprime **una única vez** la contraseña temporal. Anótela: deberá
@@ -116,9 +117,9 @@ porque el código queda fuera del `DocumentRoot`):
 ```apache
 <VirtualHost *:443>
     ServerName credenciales.empresa.local
-    DocumentRoot /ruta/al/proyecto/public
+    DocumentRoot /ruta/al/proyecto
 
-    <Directory /ruta/al/proyecto/public>
+    <Directory /ruta/al/proyecto>
         AllowOverride All
         Require all granted
     </Directory>
@@ -146,7 +147,7 @@ SESSION_SECURE=true
 server {
     listen 443 ssl http2;
     server_name credenciales.empresa.local;
-    root /ruta/al/proyecto/public;
+    root /ruta/al/proyecto;
     index index.php;
 
     location / { try_files $uri $uri/ /index.php?$query_string; }
@@ -157,8 +158,11 @@ server {
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
     }
 
-    # Nada fuera de public/ debe ser servido
-    location ~ /\.(env|git) { deny all; }
+    # El arbol interno no se sirve: sólo index.php, los endpoints y los recursos
+    location ~ /\.(env|git)         { deny all; }
+    location ~ ^/(app|bin|config|database|docker|docs|storage|tests)/ { deny all; }
+    location ~ ^/app/(api/[a-z-]+-api\.php|views/(css|js|img)/) { }
+    location = /autoload.php        { deny all; }
 }
 ```
 

@@ -375,8 +375,76 @@ Si al terminar una fase alguna prueba no pasa y la causa no se identifica en el 
 
 ---
 
-## Decisión pendiente
+## 11. Resultado de la migración
 
-Antes de escribir la primera línea de código hace falta que confirme **la variante del punto 4**: A (literal), B (estructural, recomendada) o C (mínima).
+La migración se ejecutó completa, en fases, con la batería de pruebas en
+verde al cerrar cada una.
 
-De esa elección dependen el alcance, el riesgo y el tiempo.
+### Fases
+
+| Fase | Qué se hizo |
+|---|---|
+| 0 | Las pruebas pasan a hablar por HTTP real (cURL). Mismos asertos, misma redacción. 209/209 con la arquitectura vieja. |
+| 1 | `app/models/mainModel.php` sobre **mysqli** con sentencias preparadas y traducción de marcadores `:nombre` → `?`. Se verificó que el criptograma binario viaja byte a byte igual que con PDO. |
+| 2 | Autocarga por convención (`app\models\xModel` → `app/models/xModel.php`) y `.htaccess` con la reescritura de la referencia. |
+| 3 | Los 16 servicios y los 9 repositorios se fusionan en modelos estáticos —23 al terminar la fase, 24 hoy con `viewsModel`—. Nueve choques de nombres se resolvieron renombrando el método de persistencia. |
+| 4 | `app/views/inc/session_start.php`: arranque común a los dos frentes. |
+| 5–6 | `app/api/*-api.php` (11 archivos) con reparto por `accion`, y su controlador por módulo sobre `baseController`. |
+| 7 | `index.php` ensambla las páginas (`head` + menú + barra + vista + guiones). 31 vistas a `app/views/content/*-view.php`; `app.css` → 7 hojas y `app.js` → 5 guiones, registrados en `viewsModel`. |
+| 8 | `despachoController` atiende los envíos de formulario. Se retiran `app/Http`, `app/Services`, `app/Repositories`, el enrutador, el núcleo HTTP y el contenedor. |
+
+### Qué se conservó de la arquitectura anterior
+
+No todo lo que había sobraba. Se mantuvo, y el motivo:
+
+- **`app/Core`** — `Config`, `Env`, `Logger`, `View`, `Flash`, `Csrf`,
+  `Validator` y las excepciones. La referencia no tiene equivalentes: sus
+  credenciales de base de datos están escritas en el modelo y no hay
+  validación declarativa ni registro técnico. Reescribir esto dentro de los
+  modelos lo volvería imposible de reutilizar entre módulos.
+- **`app/Support`** — el migrador versionado y el escritor de XLSX.
+- **Sentencias preparadas** — la referencia concatena las consultas. Aquí
+  no: `mainModel` sólo expone métodos parametrizados.
+- **Protección del árbol** — la referencia deja su código descargable por
+  HTTP. Aquí `app/.htaccess` niega todo y cada directorio declara sus
+  excepciones (`app/api`, `app/views/{css,js,img}`).
+- **Sesiones propias en base de datos** — necesarias para el cierre remoto
+  y la caducidad doble.
+- **Token anti-CSRF** — la referencia no lo tiene; aquí se exige en toda
+  escritura, por los dos frentes.
+- **El envío de formulario clásico** — ver 5.6 en la documentación de
+  arquitectura.
+
+### Qué se ganó
+
+- Encontrar dónde vive algo ya no exige seguir inyecciones de
+  dependencias: `credenciales-api.php` → `credencialController` →
+  `credencialModel`.
+- Una operación tiene **un solo** camino de lógica, alcanzable desde el
+  formulario o desde `fetch`. No pueden divergir.
+- La última fase borró 57 archivos PHP de una sola vez: el contenedor, el
+  enrutador, el núcleo HTTP, los ocho middleware, los nueve repositorios,
+  los dieciséis servicios y los quince controladores que los usaban. El
+  proyecto queda en 122 archivos PHP frente a los 117 de partida, con once
+  endpoints, un despachador y treinta y una vistas más.
+
+### Errores reales que la batería atrapó durante la migración
+
+- Una regla `<FilesMatch "\.php$">` en el `.htaccess` de la raíz se
+  heredaba en `app/api/` y dejaba **los once endpoints fuera de servicio**.
+  Detectado al instante: 78 pruebas en rojo.
+- Dos llamadas a `$this->` sobrevivieron a la fusión de servicio y
+  repositorio en `usuarioModel`: la política de contraseñas no se aplicaba
+  al crear un usuario con clave propia, y conceder un permiso individual
+  reventaba con `Error` en lugar de denegar.
+- El fallo de CSRF respondía 419, que Apache reescribe como 500: el usuario
+  veía "Error del sistema" en vez de "la sesión del formulario expiró".
+
+### Estado final
+
+```
+294/294 asertos en verde
+```
+
+15 grupos de prueba, de la autenticación al ensamblado de vistas, todos
+por HTTP real contra la aplicación servida por Apache.
