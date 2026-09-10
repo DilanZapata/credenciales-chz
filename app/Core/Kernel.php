@@ -180,6 +180,9 @@ final class Kernel
             if ($e instanceof ReauthRequiredException) {
                 $payload['reauth_required'] = true;
             }
+            if ($e instanceof CsrfException) {
+                $payload['csrf'] = true;
+            }
             return Response::json($payload, $status);
         }
 
@@ -195,7 +198,7 @@ final class Kernel
             $html = View::page('errors/error', [
                 'status'  => $status,
                 'message' => $message,
-                'title'   => match ($status) {
+                'title'   => $e instanceof CsrfException ? 'Sesion expirada' : match ($status) {
                     400     => 'Solicitud invalida',
                     401     => 'Sesion requerida',
                     403     => 'Acceso denegado',
@@ -214,6 +217,10 @@ final class Kernel
                   . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</p>';
         }
 
-        return Response::html($html, $status);
+        $respuesta = Response::html($html, $status);
+        if ($e instanceof CsrfException) {
+            $respuesta->withHeader('X-Csrf-Failure', '1');
+        }
+        return $respuesta;
     }
 }

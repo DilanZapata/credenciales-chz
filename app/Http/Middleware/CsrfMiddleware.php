@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 
 use App\Core\Config;
 use App\Core\Csrf;
+use App\Core\CsrfException;
 use App\Core\HttpException;
 use App\Core\Request;
 use App\Core\Response;
@@ -50,13 +51,13 @@ final class CsrfMiddleware implements MiddlewareInterface
         if ($expected === null || $provided === '' || !hash_equals($expected, (string) $provided)) {
             $this->audit->log('security.csrf_failed', null, null, $path, 'denied',
                 ['metodo' => $method], 'critical');
-            throw new HttpException(419, 'La sesion del formulario expiro. Recargue la pagina e intente nuevamente.');
+            throw new CsrfException();
         }
 
         if (!$this->originIsTrusted($request)) {
             $this->audit->log('security.csrf_origin_failed', null, null, $path, 'denied',
                 ['origen' => $request->origin() ?? $request->referer()], 'critical');
-            throw new HttpException(419, 'El origen de la solicitud no es valido.');
+            throw new CsrfException('El origen de la solicitud no es valido.');
         }
 
         return $next($request);

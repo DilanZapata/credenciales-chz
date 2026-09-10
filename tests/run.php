@@ -21,14 +21,27 @@ if (PHP_SAPI !== 'cli') {
 $root = dirname(__DIR__);
 
 // Base de datos aislada para pruebas.
+//
+// Este proceso la impone por variable de entorno, pero las peticiones las
+// atiende Apache, que no ve esas variables. Por eso se deja ademas un archivo
+// marcador que config/database.php consulta (solo fuera de produccion).
 putenv('DB_DATABASE=credenciales_corp_test');
 putenv('APP_DEBUG=false');
 
-require $root . '/tests/TestClient.php';
+@mkdir($root . '/storage', 0777, true);
+file_put_contents($root . '/storage/testing.flag', 'credenciales_corp_test');
+
+// El marcador se retira pase lo que pase: si quedara, la instalacion local
+// seguiria apuntando a la base de pruebas.
+register_shutdown_function(static function () use ($root): void {
+    @unlink($root . '/storage/testing.flag');
+});
+
+require $root . '/tests/HttpClient.php';
 
 use App\Core\Database;
 use App\Services\CryptoService;
-use Tests\TestClient;
+use Tests\HttpClient;
 
 // ---------------------------------------------------------------------
 //  Microframework de aserciones
@@ -95,6 +108,16 @@ $t = new Suite();
 //  Preparacion del entorno de pruebas
 // ---------------------------------------------------------------------
 echo "\033[1mPreparando base de datos de pruebas…\033[0m" . PHP_EOL;
+
+$baseUrl = HttpClient::baseUrlPorDefecto();
+$sonda   = @file_get_contents($baseUrl . '/entrar');
+if ($sonda === false) {
+    fwrite(STDERR, PHP_EOL . "No se pudo alcanzar la aplicacion en {$baseUrl}" . PHP_EOL);
+    fwrite(STDERR, "Las pruebas se ejecutan por HTTP real: Apache debe estar encendido." . PHP_EOL);
+    fwrite(STDERR, "Si la ruta cambio, indiquela con TEST_BASE_URL=... php tests/run.php" . PHP_EOL . PHP_EOL);
+    exit(1);
+}
+echo "  Aplicacion alcanzable en {$baseUrl}" . PHP_EOL;
 
 /** @var \App\Core\Container $container */
 $container = require $root . '/app/bootstrap.php';
@@ -210,7 +233,7 @@ echo "Listo." . PHP_EOL;
 // =====================================================================
 $t->group('1. Autenticacion');
 
-$anon = new TestClient('198.51.100.1');
+$anon = new HttpClient('198.51.100.1');
 $r = $anon->get('/');
 $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/entrar'),
     'Un usuario sin sesion es redirigido al formulario de acceso', 'HTTP ' . $r['status']);
@@ -230,7 +253,7 @@ $r = $anon->post('/entrar', ['identifier' => 'usuario.que.no.existe', 'password'
 $t->assert($r['status'] === 302, 'Un identificador inexistente responde igual que una clave incorrecta (sin enumeracion)');
 
 $clearLimits();
-$admin = new TestClient('198.51.100.2');
+$admin = new HttpClient('198.51.100.2');
 $r = $admin->login('admin.test', PASS_ADMIN);
 $t->assert($admin->cookie('scgca_session') !== null, 'El acceso valido emite la cookie de sesion');
 $sessionRow = $db->selectOne('SELECT * FROM sessions WHERE id = ?', [hash('sha256', (string) $admin->cookie('scgca_session'))]);
@@ -247,7 +270,7 @@ $t->assert($loginAudit >= 1, 'El inicio de sesion queda auditado');
 
 // Bloqueo por intentos fallidos
 $clearLimits();
-$bruteforce = new TestClient('198.51.100.3');
+$bruteforce = new HttpClient('198.51.100.3');
 for ($i = 0; $i < 6; $i++) {
     $bruteforce->post('/entrar', ['identifier' => 'ana.test', 'password' => 'clave-mala-' . $i]);
 }
@@ -260,7 +283,7 @@ $db->execute('UPDATE users SET locked_until = NULL, failed_attempts = 0 WHERE id
 
 // Limitador de frecuencia
 $clearLimits();
-$flood  = new TestClient('198.51.100.4');
+$flood  = new HttpClient('198.51.100.4');
 $status = 0;
 for ($i = 0; $i < 25; $i++) {
     $res    = $flood->post('/entrar', ['identifier' => 'inexistente' . $i, 'password' => 'x']);
@@ -275,7 +298,7 @@ $clearLimits();
 // =====================================================================
 $t->group('2. Autorizacion (el consultor no puede lo que no le corresponde)');
 
-$juan = new TestClient('198.51.100.5');
+$juan = new HttpClient('198.51.100.5');
 $juan->login('juan.test', PASS_CONSULTOR);
 $t->assert($juan->cookie('scgca_session') !== null, 'El consultor inicia sesion correctamente');
 
@@ -325,7 +348,7 @@ $deniedAudit = (int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action =
 $t->assert($deniedAudit >= 5, 'Los intentos de acceso denegado quedan auditados', 'registros: ' . $deniedAudit);
 
 // El auditor: consulta todo pero no ve secretos
-$auditor = new TestClient('198.51.100.6');
+$auditor = new HttpClient('198.51.100.6');
 $auditor->login('auditor.test', PASS_AUDITOR);
 $r = $auditor->get('/auditoria');
 $t->status(200, $r, 'El auditor accede a la auditoria');
@@ -443,13 +466,13 @@ $t->assert(str_starts_with((string) $userRow['password_hash'], '$2y$') || str_st
 $t->group('5. Defensas frente a CSRF, XSS e inyeccion SQL');
 
 $r = $admin->post('/credenciales/' . $credA['id'] . '/rotar', ['password' => 'SinToken#2026abc'], false);
-$t->status(419, $r, 'Una peticion de escritura sin token CSRF es rechazada');
+$t->status(403, $r, 'Una peticion de escritura sin token CSRF es rechazada');
 
-$victim = new TestClient('198.51.100.7');
+$victim = new HttpClient('198.51.100.7');
 $victim->login('admin.test', PASS_ADMIN);
 $victim->setCookie('scgca_csrf', str_repeat('a', 64));
 $r = $victim->request('POST', '/credenciales/' . $credA['id'] . '/eliminar', ['reason' => 'ataque', '_csrf' => str_repeat('b', 64)], false, false);
-$t->status(419, $r, 'Un token CSRF que no corresponde a la sesion es rechazado');
+$t->status(403, $r, 'Un token CSRF que no corresponde a la sesion es rechazado');
 $t->assert((int) $db->scalar("SELECT COUNT(*) FROM audit_logs WHERE action = 'security.csrf_failed'") >= 1,
     'Los fallos de CSRF quedan auditados como evento critico');
 
@@ -583,7 +606,7 @@ $r = $juan->get('/mis-accesos');
 $t->assert($r['status'] === 302, 'La sesion del usuario dado de baja deja de funcionar de inmediato');
 
 $clearLimits();
-$exJuan = new TestClient('198.51.100.8');
+$exJuan = new HttpClient('198.51.100.8');
 $r = $exJuan->login('juan.test', PASS_CONSULTOR);
 $t->assert($exJuan->cookie('scgca_session') === null, 'El usuario inactivo no puede volver a iniciar sesion');
 
@@ -597,7 +620,7 @@ $t->assert($auditEntry !== null && str_contains((string) $auditEntry['details'],
 $t->group('8. Control de sesiones');
 
 $clearLimits();
-$otro = new TestClient('198.51.100.9');
+$otro = new HttpClient('198.51.100.9');
 $otro->login('ana.test', PASS_OTRO);
 $t->assert($otro->cookie('scgca_session') !== null, 'Segundo usuario con sesion activa');
 
@@ -632,11 +655,17 @@ $t->assert(!str_starts_with((string) $report['storage_path'], $root . '/public')
     'El archivo se almacena FUERA del directorio publico');
 $t->assert(!str_contains((string) $report['file_name'], 'password'), 'El nombre del archivo no revela contenido sensible');
 
-$inventoryPath = (string) $report['storage_path'];
+// El archivo se inspecciona descargandolo, no leyendolo del disco: lo crea
+// el servidor web con permisos 0600 y este proceso corre como otro usuario.
+// Ademas asi se ejercita el camino real que sigue una persona.
+$descarga = $admin->get('/reportes/descargar/' . $report['uuid']);
+$rutaTmp  = sys_get_temp_dir() . '/inventario-prueba.xlsx';
+file_put_contents($rutaTmp, $descarga['body']);
 $zip = new ZipArchive();
-$t->assert($zip->open($inventoryPath) === true, 'El archivo generado es un XLSX valido');
-$sheet = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
-$zip->close();
+$t->assert($zip->open($rutaTmp) === true, 'El archivo generado es un XLSX valido');
+$sheet = $zip->filename !== null ? (string) $zip->getFromName('xl/worksheets/sheet1.xml') : '';
+if ($zip->filename !== null) { $zip->close(); }
+@unlink($rutaTmp);
 $t->assert(!str_contains($sheet, $nuevoSecreto) && !str_contains($sheet, $credC['secret']),
     'El Excel de inventario no contiene ninguna contrasena');
 
@@ -660,14 +689,11 @@ $t->assert((int) $db->scalar("SELECT COUNT(*) FROM secret_access_log WHERE acces
 $t->assert((int) $db->scalar("SELECT COUNT(*) FROM security_events WHERE type = 'export_with_secrets'") >= 1,
     'La exportacion con contrasenas genera un evento de seguridad');
 
-$zip = new ZipArchive();
-$zip->open((string) $secretReport['storage_path']);
-$confidential = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
-$zip->close();
-$t->assert(str_contains($confidential, $nuevoSecreto), 'El archivo confidencial si contiene las contrasenas solicitadas');
-
-// Descarga: solo el autor, y el archivo se elimina
-$intruder = new TestClient('198.51.100.10');
+// Descarga: solo el autor, y el archivo se elimina.
+// El contenido del Excel se inspecciona a partir de ESTA descarga, no
+// leyendo el disco: el archivo lo crea el servidor web con permisos 0600 y
+// desaparece justo despues, que es lo que se comprueba a continuacion.
+$intruder = new HttpClient('198.51.100.10');
 $clearLimits();
 $intruder->login('auditor.test', PASS_AUDITOR);
 $r = $intruder->get('/reportes/descargar/' . $secretReport['uuid']);
@@ -679,6 +705,15 @@ $r = $admin->get('/reportes/descargar/' . $secretReport['uuid']);
 $t->status(200, $r, 'El autor descarga su reporte');
 $t->assert(!is_file((string) $secretReport['storage_path']),
     'El archivo se elimina del servidor inmediatamente despues de la descarga');
+
+$rutaConf = sys_get_temp_dir() . '/confidencial-prueba.xlsx';
+file_put_contents($rutaConf, $r['body']);
+$zip          = new ZipArchive();
+$abierto      = $zip->open($rutaConf) === true;
+$confidential = $abierto ? (string) $zip->getFromName('xl/worksheets/sheet1.xml') : '';
+if ($abierto) { $zip->close(); }
+@unlink($rutaConf);
+$t->assert(str_contains($confidential, $nuevoSecreto), 'El archivo confidencial si contiene las contrasenas solicitadas');
 
 $r = $admin->get('/reportes/historial');
 $t->status(200, $r, 'El historial de exportaciones es consultable');
@@ -800,7 +835,7 @@ $t->equals(0, $granted, 'Nadie puede conceder un permiso que el mismo no posee')
 // MFA obligatorio para administradores
 $db->execute("UPDATE settings SET setting_value = '1' WHERE setting_key = 'security.mfa_required_admins'");
 $clearLimits();
-$mfaClient = new TestClient('198.51.100.11');
+$mfaClient = new HttpClient('198.51.100.11');
 $mfaClient->login('admin.test', PASS_ADMIN);
 $r = $mfaClient->get('/credenciales');
 $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/perfil/mfa'),
@@ -874,7 +909,7 @@ $db->execute(
     [$auditorId]
 );
 $clearLimits();
-$auditorSinExport = new TestClient('198.51.100.12');
+$auditorSinExport = new HttpClient('198.51.100.12');
 $auditorSinExport->login('auditor.test', PASS_AUDITOR);
 $r = $auditorSinExport->post('/reportes/generar', ['type' => 'inventory']);
 $t->status(403, $r, 'Sin el permiso EXPORTAR_REPORTES no se genera ningun reporte');
@@ -882,7 +917,7 @@ $db->execute('DELETE FROM user_permissions WHERE user_id = ?', [$auditorId]);
 
 // El auditor SI puede exportar el inventario (sin contrasenas).
 $clearLimits();
-$auditorOk = new TestClient('198.51.100.13');
+$auditorOk = new HttpClient('198.51.100.13');
 $auditorOk->login('auditor.test', PASS_AUDITOR);
 $r = $auditorOk->post('/reportes/generar', ['type' => 'inventory']);
 $t->assert($r['status'] === 302, 'El auditor si puede exportar el inventario sin contrasenas');
@@ -891,7 +926,7 @@ $t->assert($r['status'] === 302, 'El auditor si puede exportar el inventario sin
 $db->execute("UPDATE settings SET setting_value = '30' WHERE setting_key = 'security.password_expiry_days'");
 $db->execute('UPDATE users SET password_changed_at = DATE_SUB(NOW(), INTERVAL 100 DAY) WHERE id = ?', [$auditorId]);
 $clearLimits();
-$caducado = new TestClient('198.51.100.14');
+$caducado = new HttpClient('198.51.100.14');
 $caducado->login('auditor.test', PASS_AUDITOR);
 $r = $caducado->get('/auditoria');
 $t->assert($r['status'] === 302 && str_contains($r['headers']['Location'] ?? '', '/perfil/contrasena'),
@@ -901,7 +936,7 @@ $db->execute("UPDATE settings SET setting_value = '0' WHERE setting_key = 'secur
 
 // La cabecera Host no puede usarse para eludir la comprobacion de origen.
 $clearLimits();
-$spoof = new TestClient('198.51.100.15');
+$spoof = new HttpClient('198.51.100.15');
 $spoof->login('admin.test', PASS_ADMIN);
 $r = $spoof->request('POST', '/credenciales/' . $credC['id'] . '/eliminar',
     ['reason' => 'origen falso', '_csrf' => $spoof->csrfToken()], false, false);
@@ -910,7 +945,7 @@ $t->assert(in_array($r['status'], [302, 403], true),
 
 // El generador nunca deja rastro del valor producido.
 $clearLimits();
-$gen = new TestClient('198.51.100.16');
+$gen = new HttpClient('198.51.100.16');
 $gen->login('admin.test', PASS_ADMIN);
 $r = $gen->postJson('/api/v1/generador', ['length' => 28]);
 $generada = (string) ($r['json']['password'] ?? '');

@@ -28,8 +28,14 @@
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok) {
-          var err = new Error(data.error || 'Error en la solicitud.');
+          // El fallo de CSRF llega como 403 con el marcador "csrf": el 419
+          // no es estandar y Apache lo convierte en 500.
+          var mensaje = data.csrf
+            ? 'La sesion del formulario expiro. Recargue la pagina.'
+            : (data.error || 'Error en la solicitud.');
+          var err = new Error(mensaje);
           err.status = res.status;
+          err.csrf = !!data.csrf;
           err.data = data;
           throw err;
         }
