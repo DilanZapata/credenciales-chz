@@ -16,7 +16,11 @@ use app\models\catalogoModel;
  */
 final class CatalogRepository
 {
-    public function __construct(private Database $db)
+    /**
+     * Constructor de transicion: acepta las dependencias que aun inyecta
+     * el contenedor, sin usarlas. La logica vive en el modelo estatico.
+     */
+    public function __construct(mixed ...$dependencias)
     {
     }
 

@@ -61,7 +61,11 @@ final class AuditService
     public const ROLE_MANAGED = 'role.managed';
     public const ACCESS_DENIED = 'security.access_denied';
 
-    public function __construct(private Database $db, private AuthContext $auth)
+    /**
+     * Constructor de transicion: acepta las dependencias que aun inyecta
+     * el contenedor, sin usarlas. La logica vive en el modelo estatico.
+     */
+    public function __construct(mixed ...$dependencias)
     {
     }
 

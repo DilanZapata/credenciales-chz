@@ -9,20 +9,34 @@ use app\models\usuarioModel;
 /**
  * Envoltorio de transicion sobre `app\models\usuarioModel`.
  *
- * Toda la logica y el SQL viven ya en el modelo, con metodos estaticos,
- * segun la convencion de Porcify Manager. Esta clase reenvia las llamadas
- * mientras queden consumidores que la reciben por inyeccion; desaparece
- * cuando el ultimo de ellos pase a llamar al modelo directamente.
+ * Algunos metodos de persistencia se renombraron al fusionar la logica de
+ * negocio en el modelo, porque colisionaban con la operacion publica del
+ * mismo nombre. El mapa traduce el nombre antiguo al nuevo mientras queden
+ * consumidores que llamen por el viejo.
  */
 final class UserRepository
 {
-    public function __construct(private Database $db)
+    /** @var array<string,string> */
+    private const ALIAS = [
+        'create' => 'crearRegistro',
+        'update' => 'actualizarRegistro',
+        'deactivate' => 'desactivarRegistro',
+        'reactivate' => 'reactivarRegistro',
+        'setPermissionOverrides' => 'fijarExcepcionesPermisos',
+    ];
+
+    /**
+     * Constructor de transicion: acepta las dependencias que aun inyecta
+     * el contenedor, sin usarlas. La logica vive en el modelo estatico.
+     */
+    public function __construct(mixed ...$dependencias)
     {
     }
 
     /** @param array<int,mixed> $argumentos */
     public function __call(string $metodo, array $argumentos): mixed
     {
-        return usuarioModel::$metodo(...$argumentos);
+        $real = self::ALIAS[$metodo] ?? $metodo;
+        return usuarioModel::$real(...$argumentos);
     }
 }

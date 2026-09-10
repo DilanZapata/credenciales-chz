@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace app\models;
 
+use App\Core\HttpException;
+use App\Core\ValidationException;
+
 
 /**
  * Persistencia de usuarios, roles efectivos y permisos efectivos.
@@ -79,7 +82,7 @@ class usuarioModel extends mainModel
     }
 
     /** @param array<string,mixed> $data */
-    public static function create(array $data): int
+    public static function crearRegistro(array $data): int
     {
         return self::ejecutarInsert(
             'INSERT INTO users
@@ -99,7 +102,7 @@ class usuarioModel extends mainModel
     }
 
     /** @param array<string,mixed> $data */
-    public static function update(int $id, array $data, ?int $updatedBy = null): void
+    public static function actualizarRegistro(int $id, array $data, ?int $updatedBy = null): void
     {
         $allowed = [
             'national_id', 'employee_code', 'username', 'email', 'first_name', 'last_name',
@@ -160,7 +163,7 @@ class usuarioModel extends mainModel
         self::ejecutarConsultaAfectadas('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?', [$id]);
     }
 
-    public static function deactivate(int $id, int $by, string $reason): void
+    public static function desactivarRegistro(int $id, int $by, string $reason): void
     {
         self::ejecutarConsultaAfectadas(
             "UPDATE users
@@ -170,7 +173,7 @@ class usuarioModel extends mainModel
         );
     }
 
-    public static function reactivate(int $id, int $by): void
+    public static function reactivarRegistro(int $id, int $by): void
     {
         self::ejecutarConsultaAfectadas(
             "UPDATE users
@@ -253,7 +256,7 @@ class usuarioModel extends mainModel
     }
 
     /** @param array<string,string> $overrides code => allow|deny */
-    public static function setPermissionOverrides(int $userId, array $overrides, int $assignedBy): void
+    public static function fijarExcepcionesPermisos(int $userId, array $overrides, int $assignedBy): void
     {
         self::transaccion(function () use ($userId, $overrides, $assignedBy): void {
             self::ejecutarConsultaAfectadas('DELETE FROM user_permissions WHERE user_id = ?', [$userId]);
@@ -385,5 +388,257 @@ class usuarioModel extends mainModel
               GROUP BY u.id, u.national_id, u.first_name, u.last_name, u.status
               ORDER BY active_assignments DESC"
         );
+    }
+
+    // =================================================================
+    //  Logica de negocio (fusionada desde UserService.php)
+    // =================================================================
+
+
+    public static function list(array $filters, int $page, int $perPage): array
+    {
+        permisoModel::exigir('users.view');
+        $perPage = max(5, min(100, $perPage));
+        $result  = usuarioModel::paginate($filters, max(1, $page), $perPage);
+        return [
+            'items'    => $result['items'],
+            'total'    => $result['total'],
+            'page'     => max(1, $page),
+            'per_page' => $perPage,
+            'pages'    => (int) ceil($result['total'] / $perPage),
+        ];
+    }
+
+    public static function show(int $id): array
+    {
+        permisoModel::exigir('users.view', 'user', $id);
+        $user = usuarioModel::find($id);
+        if ($user === null) {
+            throw HttpException::notFound('El usuario no existe.');
+        }
+        return [
+            'user'        => $user,
+            'roles'       => usuarioModel::rolesOf($id),
+            'permissions' => usuarioModel::effectivePermissions($id),
+            'overrides'   => usuarioModel::permissionOverrides($id),
+            'assignments' => asignacionModel::forUser($id, false),
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     * @return array{id:int,temporary_password:string}
+     */
+    public static function create(array $data, array $roleIds, ?string $password = null): array
+    {
+        permisoModel::exigir('users.create');
+        self::assertUnique($data);
+        self::assertAssignableRoles($roleIds);
+
+        // Si no se indica contrasena se genera una temporal robusta que el
+        // usuario debera cambiar en su primer ingreso.
+        $temporary = $password === null || $password === '';
+        $plain     = $temporary
+            ? generadorModel::generate(['length' => 16, 'exclude_ambiguous' => true])
+            : $password;
+
+        if (!$temporary) {
+            $this->auth->validatePasswordPolicy($plain, $data);
+        }
+
+        $hash = cifradoModel::hashContrasena($plain);
+
+        $id = self::transaccion(function () use ($data, $hash, $roleIds, $temporary): int {
+            $id = usuarioModel::crearRegistro(array_merge($data, [
+                'password_hash'        => $hash['hash'],
+                'password_algo'        => $hash['algo'],
+                'must_change_password' => 1,
+                'created_by'           => contextoModel::id(),
+            ]));
+            usuarioModel::setRoles($id, $roleIds, (int) contextoModel::id());
+            return $id;
+        });
+        unset($temporary);
+
+        auditoriaModel::registrar(auditoriaModel::USER_CREATED, 'user', $id,
+            $data['first_name'] . ' ' . $data['last_name'], 'success',
+            ['cedula' => $data['national_id'], 'usuario' => $data['username'], 'roles' => $roleIds], 'notice');
+
+        return ['id' => $id, 'temporary_password' => $plain];
+    }
+
+    /** @param array<string,mixed> $data */
+    public static function update(int $id, array $data, ?array $roleIds = null): void
+    {
+        permisoModel::exigir('users.update', 'user', $id);
+        $target = usuarioModel::find($id);
+        if ($target === null) {
+            throw HttpException::notFound('El usuario no existe.');
+        }
+        permisoModel::exigirGestionUsuario(self::levelOf($id));
+        self::assertUnique($data, $id);
+
+        usuarioModel::actualizarRegistro($id, $data, contextoModel::id());
+
+        if ($roleIds !== null) {
+            permisoModel::exigir('users.assign_roles', 'user', $id);
+            self::assertAssignableRoles($roleIds);
+            $before = array_column(usuarioModel::rolesOf($id), 'code');
+            usuarioModel::setRoles($id, $roleIds, (int) contextoModel::id());
+            $after  = array_column(usuarioModel::rolesOf($id), 'code');
+            if ($before !== $after) {
+                auditoriaModel::registrar(auditoriaModel::USER_ROLES_CHANGED, 'user', $id,
+                    $target['first_name'] . ' ' . $target['last_name'], 'success',
+                    ['antes' => $before, 'despues' => $after], 'warning');
+                // Cambiar privilegios invalida las sesiones abiertas del usuario.
+                sesionModel::revocarTodasDeUsuario($id, contextoModel::id(), 'cambio de roles');
+            }
+        }
+
+        auditoriaModel::registrar(auditoriaModel::USER_UPDATED, 'user', $id,
+            $target['first_name'] . ' ' . $target['last_name'], 'success',
+            ['campos' => array_keys($data)], 'notice');
+    }
+
+    /** @param array<string,string> $overrides */
+    public static function setPermissionOverrides(int $id, array $overrides): void
+    {
+        permisoModel::exigir('users.assign_roles', 'user', $id);
+        permisoModel::exigirGestionUsuario(self::levelOf($id));
+
+        // Nadie puede concederse a si mismo un permiso que no posee.
+        foreach ($overrides as $code => $effect) {
+            if ($effect === 'allow' && !$this->context->can($code) && !contextoModel::esSuperadministrador()) {
+                throw HttpException::forbidden('No puede otorgar un permiso que usted no posee: ' . $code);
+            }
+        }
+
+        usuarioModel::fijarExcepcionesPermisos($id, $overrides, (int) contextoModel::id());
+        sesionModel::revocarTodasDeUsuario($id, contextoModel::id(), 'cambio de permisos');
+        auditoriaModel::registrar(auditoriaModel::USER_PERMS_CHANGED, 'user', $id, null, 'success',
+            ['excepciones' => $overrides], 'warning');
+    }
+
+    /**
+     * Baja de un empleado (art. 19): bloquea el acceso, revoca asignaciones
+     * y CONSERVA todo el historial y la auditoria.
+     */
+    public static function deactivate(int $id, string $reason, ?int $reassignToUserId = null): array
+    {
+        permisoModel::exigir('users.deactivate', 'user', $id);
+        $target = usuarioModel::find($id);
+        if ($target === null) {
+            throw HttpException::notFound('El usuario no existe.');
+        }
+        permisoModel::exigirGestionUsuario(self::levelOf($id), $id);
+
+        $previousAssignments = asignacionModel::forUser($id, true);
+
+        $result = self::transaccion(function () use ($id, $reason, $reassignToUserId): array {
+            usuarioModel::desactivarRegistro($id, (int) contextoModel::id(), $reason);
+            $revoked = asignacionModel::revokeAllForUser($id, (int) contextoModel::id(), 'baja del usuario: ' . $reason);
+            $reassigned = 0;
+            if ($reassignToUserId !== null) {
+                $reassigned = asignacionModel::reassign($id, $reassignToUserId, (int) contextoModel::id());
+            }
+            return ['revoked' => $revoked, 'reassigned' => $reassigned];
+        });
+
+        $closed = sesionModel::revocarTodasDeUsuario($id, contextoModel::id(), 'usuario desactivado');
+
+        auditoriaModel::registrar(auditoriaModel::USER_DEACTIVATED, 'user', $id,
+            $target['first_name'] . ' ' . $target['last_name'], 'success', [
+                'motivo'               => $reason,
+                'accesos_revocados'    => $result['revoked'],
+                'accesos_reasignados'  => $result['reassigned'],
+                'sesiones_cerradas'    => $closed,
+                'credenciales_previas' => array_map(
+                    static fn (array $a): string => (string) $a['system_name'] . ' / ' . (string) $a['credential_name'],
+                    $previousAssignments
+                ),
+            ], 'warning');
+
+        return array_merge($result, ['sessions_closed' => $closed, 'previous' => $previousAssignments]);
+    }
+
+    public static function reactivate(int $id): void
+    {
+        permisoModel::exigir('users.deactivate', 'user', $id);
+        $target = usuarioModel::find($id);
+        if ($target === null) {
+            throw HttpException::notFound('El usuario no existe.');
+        }
+        permisoModel::exigirGestionUsuario(self::levelOf($id));
+        usuarioModel::reactivarRegistro($id, (int) contextoModel::id());
+        auditoriaModel::registrar(auditoriaModel::USER_REACTIVATED, 'user', $id,
+            $target['first_name'] . ' ' . $target['last_name'], 'success', [], 'notice');
+    }
+
+    /** Restablecimiento administrativo: entrega una clave temporal de un solo uso. */
+    public static function resetPassword(int $id): string
+    {
+        permisoModel::exigir('users.reset_password', 'user', $id);
+        $target = usuarioModel::find($id);
+        if ($target === null) {
+            throw HttpException::notFound('El usuario no existe.');
+        }
+        permisoModel::exigirGestionUsuario(self::levelOf($id), $id);
+        permisoModel::exigirReautenticacion('secret');
+
+        $plain = generadorModel::generate(['length' => 16, 'exclude_ambiguous' => true]);
+        $hash  = cifradoModel::hashContrasena($plain);
+        usuarioModel::updatePassword($id, $hash['hash'], $hash['algo'], true);
+        sesionModel::revocarTodasDeUsuario($id, contextoModel::id(), 'restablecimiento administrativo');
+
+        auditoriaModel::registrar(auditoriaModel::USER_PASSWORD_RESET, 'user', $id,
+            $target['first_name'] . ' ' . $target['last_name'], 'success', [], 'warning');
+
+        return $plain;
+    }
+
+    public static function assignmentsOf(int $id): array
+    {
+        permisoModel::exigirAlguno(['users.view', 'credentials.assign'], 'user', $id);
+        return asignacionModel::forUser($id, false);
+    }
+
+    // -----------------------------------------------------------------
+
+    private static function levelOf(int $userId): int
+    {
+        $roles = usuarioModel::rolesOf($userId);
+        $max   = 0;
+        foreach ($roles as $role) {
+            $max = max($max, (int) $role['level']);
+        }
+        return $max;
+    }
+
+    /** Nadie puede otorgar un rol de nivel igual o superior al suyo. */
+    private static function assertAssignableRoles(array $roleIds): void
+    {
+        if (contextoModel::esSuperadministrador()) {
+            return;
+        }
+        $level = contextoModel::nivel();
+        foreach ($roleIds as $roleId) {
+            $roleLevel = (int) self::obtenerValor('SELECT level FROM roles WHERE id = ?', [(int) $roleId]);
+            if ($roleLevel >= $level) {
+                throw HttpException::forbidden('No puede asignar un rol de nivel igual o superior al suyo.');
+            }
+        }
+    }
+
+    private static function assertUnique(array $data, ?int $exceptId = null): void
+    {
+        $errors = [];
+        foreach (['national_id' => 'La cedula', 'username' => 'El nombre de usuario', 'email' => 'El correo'] as $field => $label) {
+            if (!empty($data[$field]) && usuarioModel::existsField($field, (string) $data[$field], $exceptId)) {
+                $errors[$field] = $label . ' ya esta registrado para otro usuario.';
+            }
+        }
+        if ($errors !== []) {
+            throw new ValidationException($errors);
+        }
     }
 }
