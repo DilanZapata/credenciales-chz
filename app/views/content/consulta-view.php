@@ -27,14 +27,22 @@ $csrf          = \app\middlewares\accesoMiddleware::csrfInvitado();
 $exigeClave    = consultaModel::exigeContrasena();
 $puedeVerClave = consultaModel::muestraSecretos();
 
-// Resultado de la identificacion anterior, si la hubo.
-$idConsultado = Flash::get('consulta_usuario');
+// A quien se identifico, si la consulta sigue vigente.
+$idConsultado = consultaModel::ticket();
 $datos        = null;
 $revelado     = Flash::get('consulta_revelado');
 
-if (is_int($idConsultado) || (is_string($idConsultado) && ctype_digit($idConsultado))) {
-    $respuesta = consultaController::accesosController((int) $idConsultado);
+if ($idConsultado !== null) {
+    $respuesta = consultaController::accesosController($idConsultado);
     $datos = ($respuesta['status'] ?? '') === 'success' ? $respuesta['data'] : null;
+
+    // Se renueva mientras la persona siga usando la pantalla; al dejarla
+    // quieta vence sola.
+    if ($datos !== null) {
+        consultaModel::emitirTicket($idConsultado);
+    } else {
+        consultaModel::cerrarTicket();
+    }
 }
 ?>
 
@@ -88,7 +96,10 @@ if (is_int($idConsultado) || (is_string($idConsultado) && ctype_digit($idConsult
         <span class="text-small text-muted"><?= count($items) ?> acceso(s) vigentes</span>
       </div>
       <div class="spacer"></div>
-      <a class="btn btn--sm" href="<?= e(url('/consulta')) ?>">Salir</a>
+      <form method="post" action="<?= e(url('/consulta/salir')) ?>" data-no-busy="1">
+        <input type="hidden" name="_csrf" value="<?= e($csrf) ?>">
+        <button class="btn btn--sm" type="submit">Salir</button>
+      </form>
     </div>
 
     <?php if ($revelado !== null && is_array($revelado)): ?>
@@ -155,8 +166,8 @@ if (is_int($idConsultado) || (is_string($idConsultado) && ctype_digit($idConsult
 
     <div class="card__foot">
       <span class="text-small text-muted">
-        Esta consulta quedo registrada en la auditoria. Al recargar la pagina
-        debera identificarse de nuevo.
+        Esta consulta quedo registrada en la auditoria y caduca sola a los
+        <?= (int) consultaModel::minutos() ?> minutos. Pulse "Salir" al terminar.
       </span>
     </div>
   </div>

@@ -39,7 +39,7 @@ class despachoController extends baseController
 {
     /** Rutas que no exigen sesion. */
     private const PUBLICAS = ['/entrar', '/recuperar', '/restablecer', '/mfa/verificar',
-                              '/consulta', '/consulta/revelar'];
+                              '/consulta', '/consulta/revelar', '/consulta/salir'];
 
     /**
      * Pagina a la que se devuelve al usuario cuando el envio se rechaza.
@@ -137,6 +137,7 @@ class despachoController extends baseController
             // -------------------- Consulta rapida ---------------------
             case '/consulta':         self::consultar($c);
             case '/consulta/revelar': self::revelarEnConsulta($c);
+            case '/consulta/salir':   self::salirDeConsulta();
 
             // ------------------------- Perfil -------------------------
             case '/perfil/contrasena':
@@ -471,30 +472,33 @@ class despachoController extends baseController
             self::salir('/consulta');
         }
 
-        Flash::set('consulta_usuario', (int) $r['data']['user_id']);
+        \app\models\consultaModel::emitirTicket((int) $r['data']['user_id']);
+        self::salir('/consulta');
+    }
+
+    /** Cierra la consulta rapida y olvida a quien se identifico. */
+    private static function salirDeConsulta(): never
+    {
+        \app\models\consultaModel::cerrarTicket();
         self::salir('/consulta');
     }
 
     /** @param array<string,mixed> $c */
     private static function revelarEnConsulta(array $c): never
     {
-        // El identificador viene del mensaje anterior, NUNCA del formulario:
+        // El identificador sale de la cookie firmada, NUNCA del formulario:
         // si lo enviara el cliente, cualquiera pediria las contrasenas de
         // otro cambiando un numero.
-        $idUsuario = Flash::get('consulta_usuario');
-        if (!is_int($idUsuario) && !(is_string($idUsuario) && ctype_digit($idUsuario))) {
+        $idUsuario = \app\models\consultaModel::ticket();
+        if ($idUsuario === null) {
             self::error('Su consulta expiro. Identifiquese de nuevo.');
             self::salir('/consulta');
         }
 
         $r = consultaController::revelarController(
-            (int) $idUsuario,
+            $idUsuario,
             (int) ($c['credential_id'] ?? 0)
         );
-
-        // El identificador se renueva para que la pagina siguiente siga
-        // mostrando la lista.
-        Flash::set('consulta_usuario', (int) $idUsuario);
 
         if (($r['status'] ?? '') !== 'success') {
             self::error((string) $r['message']);
@@ -668,7 +672,8 @@ class despachoController extends baseController
             '/admin/roles/{id}/permisos'      => '/admin/roles',
 
             '/consulta',
-            '/consulta/revelar'               => '/consulta',
+            '/consulta/revelar',
+            '/consulta/salir'                 => '/consulta',
 
             '/importar/previa',
             '/importar/ejecutar'              => '/importar',

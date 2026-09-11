@@ -1682,10 +1682,23 @@ $t->assert(!str_contains($cuerpo, $credA['secret']) && !str_contains($cuerpo, $c
     && !str_contains($cuerpo, 'Ver contrasena'),
     'Sin habilitar secretos, la lista no trae contrasenas ni boton para verlas');
 
-// El resultado no sobrevive a una recarga: es de un solo uso.
+// La consulta dura un rato acotado para poder mirar y pedir una
+// contrasena, y se cierra a voluntad con "Salir".
+$r = $publico->get('/consulta');
+$t->assert(str_contains((string) $r['body'], 'Accesos de'),
+    'La consulta sigue vigente al recargar, para poder usar la pantalla');
+
+$r = $publico->post('/consulta/salir', []);
 $r = $publico->get('/consulta');
 $t->assert(!str_contains((string) $r['body'], 'Accesos de'),
-    'Al recargar hay que identificarse de nuevo: el resultado no queda abierto');
+    'Al pulsar Salir la consulta se cierra de inmediato');
+
+// La cookie va firmada: cambiarla a mano no sirve para ver accesos ajenos.
+$publico->post('/consulta', ['identifier' => 'kiosco.test', 'password' => 'Consulta#Prueba2026!']);
+$publico->setCookie('scgca_consulta', $adminId . '.' . (time() + 600) . '.' . str_repeat('a', 64));
+$r = $publico->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], 'Accesos de'),
+    'Una cookie de consulta manipulada se descarta');
 
 // Queda auditado con la persona consultada, aunque no hubo sesion.
 $t->assert((int) mainModel::obtenerValor(
@@ -1735,9 +1748,17 @@ $t->assert(str_contains((string) $r['body'], 'Ver contrasena'),
     'Con secretos habilitados aparece el boton de ver contrasena');
 
 // Se revela la que tiene asignada con permiso de ver.
+//
+// Se pasa por el GET intermedio a proposito: es lo que hace un navegador
+// (identificarse, ver la lista, pulsar el boton). Encadenar POST -> POST
+// escondio un fallo real, porque el GET era el que consumia la
+// identificacion y dejaba el boton inservible.
 $limpiarConsulta();
 $consulta2 = new HttpClient('198.51.100.62');
 $consulta2->post('/consulta', ['identifier' => 'kiosco.test']);
+$r = $consulta2->get('/consulta');
+$t->assert(str_contains((string) $r['body'], 'Ver contrasena'),
+    'Tras identificarse, la lista ofrece el boton de ver contrasena');
 $r = $consulta2->post('/consulta/revelar', ['credential_id' => $credB['id']]);
 $r = $consulta2->get('/consulta');
 $t->assert(str_contains((string) $r['body'], $credB['secret']),
@@ -1750,6 +1771,7 @@ $t->assert((int) mainModel::obtenerValor(
 // credC esta asignada SIN permiso de ver el secreto.
 $limpiarConsulta();
 $consulta2->post('/consulta', ['identifier' => 'kiosco.test']);
+$consulta2->get('/consulta');
 $r = $consulta2->post('/consulta/revelar', ['credential_id' => $credC['id']]);
 $r = $consulta2->get('/consulta');
 $t->assert(!str_contains((string) $r['body'], $credC['secret']),
@@ -1758,6 +1780,7 @@ $t->assert(!str_contains((string) $r['body'], $credC['secret']),
 // Y una credencial que no tiene asignada, tampoco.
 $limpiarConsulta();
 $consulta2->post('/consulta', ['identifier' => 'kiosco.test']);
+$consulta2->get('/consulta');
 $r = $consulta2->post('/consulta/revelar', ['credential_id' => $credA['id']]);
 $r = $consulta2->get('/consulta');
 $t->assert(!str_contains((string) $r['body'], 'Rotad0-Nuev0#2026'),

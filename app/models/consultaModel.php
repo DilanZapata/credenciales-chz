@@ -27,6 +27,9 @@ use App\Core\HttpException;
  */
 class consultaModel extends mainModel
 {
+    /** Cookie firmada que recuerda a quien se identifico. */
+    private const COOKIE = 'scgca_consulta';
+
     public static function habilitada(): bool
     {
         return configuracionModel::booleano('access.quick_lookup_enabled', false);
@@ -40,6 +43,79 @@ class consultaModel extends mainModel
     public static function muestraSecretos(): bool
     {
         return configuracionModel::booleano('access.quick_lookup_show_secrets', false);
+    }
+
+    public static function minutos(): int
+    {
+        return max(1, min(60, configuracionModel::entero('access.quick_lookup_minutes', 5)));
+    }
+
+    /**
+     * Recuerda a quien se identifico, por un rato acotado.
+     *
+     * No es una sesion: no da acceso al sistema, solo evita repetir la
+     * identificacion entre mirar la lista y pedir una contrasena. Va
+     * firmada, asi que el cliente no puede cambiar de quien son los
+     * accesos que esta viendo.
+     */
+    public static function emitirTicket(int $idUsuario): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+        $vence  = time() + (self::minutos() * 60);
+        $cuerpo = $idUsuario . '.' . $vence;
+        $base   = (string) \App\Core\Config::get('app.base_path', '');
+
+        setcookie(self::COOKIE, $cuerpo . '.' . self::firmar($cuerpo), [
+            'expires'  => $vence,
+            'path'     => ($base === '' ? '/' : $base . '/'),
+            'httponly' => true,
+            'samesite' => 'Strict',
+            'secure'   => (bool) \App\Core\Config::get('session.cookie_secure', false),
+        ]);
+    }
+
+    /** Identificador recordado, o null si no hay o ya vencio. */
+    public static function ticket(): ?int
+    {
+        $crudo = $_COOKIE[self::COOKIE] ?? '';
+        if (!is_string($crudo) || $crudo === '') {
+            return null;
+        }
+        $partes = explode('.', $crudo);
+        if (count($partes) !== 3) {
+            return null;
+        }
+        [$id, $vence, $firma] = $partes;
+        if (!ctype_digit($id) || !ctype_digit($vence)) {
+            return null;
+        }
+        if (!hash_equals(self::firmar($id . '.' . $vence), $firma)) {
+            return null;
+        }
+        if ((int) $vence < time()) {
+            return null;
+        }
+        return (int) $id;
+    }
+
+    public static function cerrarTicket(): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+        $base = (string) \App\Core\Config::get('app.base_path', '');
+        setcookie(self::COOKIE, '', [
+            'expires' => time() - 3600, 'path' => ($base === '' ? '/' : $base . '/'),
+            'httponly' => true, 'samesite' => 'Strict',
+        ]);
+    }
+
+    private static function firmar(string $cuerpo): string
+    {
+        return hash_hmac('sha256', 'SCGCA:CONSULTA:' . $cuerpo,
+            (string) \App\Core\Env::get('APP_MASTER_KEY', 'consulta-sin-clave'));
     }
 
     /**

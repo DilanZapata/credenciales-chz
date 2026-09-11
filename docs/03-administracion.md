@@ -328,6 +328,7 @@ Se configura en *Administración → Configuración*, grupo **consulta**:
 | `access.quick_lookup_require_password` | **sí** | Exige contraseña además del identificador |
 | `access.quick_lookup_show_secrets` | **no** | Permite revelar contraseñas desde ahí |
 | `access.quick_lookup_max_attempts` | 10 | Consultas por hora y dirección IP |
+| `access.quick_lookup_minutes` | 5 | Cuánto recuerda la pantalla a quien se identificó |
 
 ### Qué protege la pantalla
 
@@ -336,8 +337,9 @@ Se configura en *Administración → Configuración*, grupo **consulta**:
   están registradas en la empresa.
 - El límite por IP corta el barrido automático de cédulas y genera un
   evento de seguridad.
-- El resultado es **de un solo uso**: al recargar hay que identificarse de
-  nuevo. Importa en un computador compartido.
+- La identificación dura lo configurado (5 minutos por defecto) y se
+  cierra con **Salir**. Viaja en una cookie firmada, así que nadie puede
+  cambiarla para ver los accesos de otra persona.
 - Toda consulta queda auditada, acierte o falle, atribuida a la persona
   consultada aunque no haya sesión.
 - Revelar una contraseña exige además que la asignación de esa persona lo
