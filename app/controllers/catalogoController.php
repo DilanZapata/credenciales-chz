@@ -246,10 +246,25 @@ class catalogoController extends baseController
             permisoModel::exigir('settings.manage');
             permisoModel::exigirReautenticacion('secret');
 
+            // Los campos llegan dentro de ajustes[...] porque PHP convierte
+            // los puntos en guiones bajos en los nombres de primer nivel y
+            // ninguna clave coincidiria.
+            $enviados = $variables['ajustes'] ?? null;
+
+            // Si el formulario no llego entero se rechaza en vez de seguir:
+            // las casillas ausentes se interpretan como "desmarcada", y un
+            // envio incompleto apagaria de golpe el MFA obligatorio, la
+            // reautenticacion para ver secretos y el resto de interruptores.
+            if (!is_array($enviados) || $enviados === []) {
+                throw HttpException::badRequest(
+                    'El formulario no llego completo. Recargue la pagina e intente de nuevo.'
+                );
+            }
+
             $cambios = [];
             foreach (configuracionModel::agrupados() as $fila) {
                 $clave = (string) $fila['setting_key'];
-                if (!array_key_exists($clave, $variables)) {
+                if (!array_key_exists($clave, $enviados)) {
                     // Las casillas no marcadas no llegan en la peticion.
                     if ($fila['value_type'] === 'bool' && (string) $fila['setting_value'] !== '0') {
                         configuracionModel::fijar($clave, '0', contextoModel::id());
@@ -257,7 +272,7 @@ class catalogoController extends baseController
                     }
                     continue;
                 }
-                $crudo = (string) ($variables[$clave] ?? '');
+                $crudo = (string) ($enviados[$clave] ?? '');
                 $valor = match ((string) $fila['value_type']) {
                     'int'  => (string) max(0, (int) $crudo),
                     'bool' => in_array(strtolower($crudo), ['1', 'true', 'on', 'yes', 'si'], true) ? '1' : '0',

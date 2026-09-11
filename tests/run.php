@@ -1783,6 +1783,120 @@ mainModel::ejecutarConsultaAfectadas('DELETE FROM user_roles WHERE user_id = ?',
 mainModel::ejecutarConsultaAfectadas('DELETE FROM users WHERE id = ?', [$consultaId]);
 
 // =====================================================================
+//  19. Guardar la configuracion desde el formulario
+// =====================================================================
+//
+//  Nadie comprobaba este camino: las demas pruebas ajustan los parametros
+//  escribiendo en la tabla. Eso escondio un fallo real durante toda la
+//  vida del proyecto — PHP convierte los puntos en guiones bajos en los
+//  nombres de campo de primer nivel, asi que "security.password_min_length"
+//  llegaba como "security_password_min_length", no coincidia con ninguna
+//  clave, y el formulario respondia "guardado" sin guardar nada.
+// =====================================================================
+$t->group('19. Guardar la configuracion desde el formulario');
+
+// Hace falta un SUPERADMIN: el rol ADMIN no tiene settings.manage a
+// proposito, para que quien gestiona el dia a dia no cambie las reglas.
+$hashJefe = cifradoModel::hashContrasena('Jefe#Prueba2026!');
+$jefeId = mainModel::ejecutarInsert(
+    'INSERT INTO users (national_id, username, email, first_name, last_name,
+                        password_hash, password_algo, must_change_password, status)
+     VALUES (?,?,?,?,?,?,?,0,"active")',
+    ['900000008', 'jefe.test', 'jefe@test.local', 'Jefe', 'Prueba',
+     $hashJefe['hash'], $hashJefe['algo']]
+);
+mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)',
+    [$jefeId, $roleIds['SUPERADMIN']]);
+mainModel::ejecutarConsultaAfectadas(
+    "UPDATE settings SET setting_value = '0' WHERE setting_key = 'security.mfa_required_admins'");
+
+$clearLimits();
+$jefe = new HttpClient('198.51.100.70');
+$jefe->login('jefe.test', 'Jefe#Prueba2026!');
+$r = $jefe->get('/admin/configuracion');
+$t->status(200, $r, 'El superadministrador abre la pantalla de configuracion');
+
+// Los campos van dentro de ajustes[...]: con el nombre plano, PHP
+// destrozaba la clave y no se guardaba nada.
+$t->assert(str_contains((string) $r['body'], 'name="ajustes[security.password_min_length]"'),
+    'Los campos viajan dentro de ajustes[...] para conservar los puntos de la clave');
+
+// Guardar exige confirmar identidad: es de las operaciones mas sensibles.
+$r = $jefe->post('/admin/configuracion', ['ajustes' => ['security.password_min_length' => '16']]);
+$t->assert($r['status'] === 423, 'Guardar la configuracion exige reautenticacion', 'HTTP ' . $r['status']);
+
+$jefe->postJson('/app/api/login-api.php?accion=reauth', ['password' => 'Jefe#Prueba2026!']);
+
+// El formulario real envia TODOS los parametros: se reconstruye igual, para
+// que las casillas marcadas no se apaguen al guardar.
+$todos = [];
+foreach (mainModel::obtenerFilas('SELECT setting_key, setting_value, value_type FROM settings') as $fila) {
+    if ($fila['value_type'] === 'bool') {
+        if ((string) $fila['setting_value'] === '1') { $todos[$fila['setting_key']] = '1'; }
+    } else {
+        $todos[$fila['setting_key']] = (string) $fila['setting_value'];
+    }
+}
+$todos['security.password_min_length'] = '16';
+
+$r = $jefe->post('/admin/configuracion', ['ajustes' => $todos]);
+$t->assert($r['status'] === 302, 'El formulario se acepta tras reautenticar', 'HTTP ' . $r['status']);
+$t->equals('16', (string) mainModel::obtenerValor(
+    "SELECT setting_value FROM settings WHERE setting_key = 'security.password_min_length'"),
+    'El valor cambiado SI queda guardado');
+
+// Y el cambio se ve de inmediato donde importa.
+$r = $jefe->get('/perfil/contrasena');
+$t->assert(str_contains((string) $r['body'], 'Minimo 16 caracteres'),
+    'El formulario de contrasena refleja el valor recien guardado');
+
+// Las casillas que venian marcadas siguen marcadas.
+$t->equals('1', (string) mainModel::obtenerValor(
+    "SELECT setting_value FROM settings WHERE setting_key = 'security.reauth_for_secret'"),
+    'Guardar no apaga las casillas que ya estaban activas');
+
+// Desmarcar una casilla si la apaga.
+unset($todos['security.reauth_for_export']);
+$r = $jefe->post('/admin/configuracion', ['ajustes' => $todos]);
+$t->equals('0', (string) mainModel::obtenerValor(
+    "SELECT setting_value FROM settings WHERE setting_key = 'security.reauth_for_export'"),
+    'Desmarcar una casilla la guarda como desactivada');
+
+// Un envio incompleto se rechaza en vez de interpretarse como "todo
+// desmarcado": apagaria de golpe cada interruptor de seguridad.
+$antes = (string) mainModel::obtenerValor(
+    "SELECT setting_value FROM settings WHERE setting_key = 'security.reauth_for_secret'");
+$r = $jefe->post('/admin/configuracion', ['otra_cosa' => '1']);
+$t->assert($r['status'] === 400, 'Un envio sin los ajustes se rechaza', 'HTTP ' . $r['status']);
+$t->equals($antes, (string) mainModel::obtenerValor(
+    "SELECT setting_value FROM settings WHERE setting_key = 'security.reauth_for_secret'"),
+    'El envio incompleto NO apago los interruptores de seguridad');
+
+// El cambio queda auditado como evento critico.
+$t->assert((int) mainModel::obtenerValor(
+    "SELECT COUNT(*) FROM audit_logs WHERE action = 'settings.updated' AND severity = 'critical'") >= 1,
+    'El cambio de configuracion queda auditado como critico');
+
+// El administrador corriente no puede guardar aunque envie el formulario.
+$clearLimits();
+$noJefe = new HttpClient('198.51.100.71');
+$noJefe->login('admin.test', PASS_ADMIN);
+$r = $noJefe->post('/admin/configuracion', ['ajustes' => ['security.password_min_length' => '4']]);
+$t->assert($r['status'] === 403, 'El rol Administrador no puede guardar la configuracion',
+    'HTTP ' . $r['status']);
+$t->equals('16', (string) mainModel::obtenerValor(
+    "SELECT setting_value FROM settings WHERE setting_key = 'security.password_min_length'"),
+    'Su intento no cambio nada');
+
+// Se deja como estaba.
+mainModel::ejecutarConsultaAfectadas(
+    "UPDATE settings SET setting_value = '12' WHERE setting_key = 'security.password_min_length'");
+mainModel::ejecutarConsultaAfectadas(
+    "UPDATE settings SET setting_value = '1' WHERE setting_key = 'security.reauth_for_export'");
+mainModel::ejecutarConsultaAfectadas('DELETE FROM user_roles WHERE user_id = ?', [$jefeId]);
+mainModel::ejecutarConsultaAfectadas('DELETE FROM users WHERE id = ?', [$jefeId]);
+
+// =====================================================================
 //  Resumen
 // =====================================================================
 exit($t->summary());
