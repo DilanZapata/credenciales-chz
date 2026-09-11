@@ -241,25 +241,83 @@ class autenticacionModel extends mainModel
     // -----------------------------------------------------------------
 
     /** Politica de contrasenas para el acceso AL SISTEMA. */
+    /**
+     * Politica de contrasenas vigente, leida de la configuracion.
+     *
+     * Cada organizacion tiene la suya y quien debe decidirla es el
+     * superadministrador desde la interfaz, no el programador en el
+     * codigo. Los valores por defecto son los de una politica corriente.
+     *
+     * @return array<string,mixed>
+     */
+    public static function politicaContrasena(): array
+    {
+        return [
+            'min'            => max(1, configuracionModel::entero('security.password_min_length', 12)),
+            'max'            => max(8, configuracionModel::entero('security.password_max_length', 200)),
+            'upper'          => configuracionModel::booleano('security.password_require_upper', true),
+            'lower'          => configuracionModel::booleano('security.password_require_lower', true),
+            'digit'          => configuracionModel::booleano('security.password_require_digit', true),
+            'symbol'         => configuracionModel::booleano('security.password_require_symbol', true),
+            'block_personal' => configuracionModel::booleano('security.password_block_personal', true),
+            'block_common'   => configuracionModel::booleano('security.password_block_common', true),
+        ];
+    }
+
+    /**
+     * La politica explicada en una frase, para el formulario.
+     *
+     * Se construye de la configuracion vigente y no de un texto fijo: un
+     * aviso que no coincide con lo que el servidor exige es peor que no
+     * poner ninguno, porque el usuario cumple lo que lee y aun asi lo
+     * rechazan.
+     */
+    public static function descripcionPolitica(?array $p = null): string
+    {
+        $p = $p ?? self::politicaContrasena();
+
+        $exigencias = [];
+        if ($p['upper'])  { $exigencias[] = 'mayusculas'; }
+        if ($p['lower'])  { $exigencias[] = 'minusculas'; }
+        if ($p['digit'])  { $exigencias[] = 'numeros'; }
+        if ($p['symbol']) { $exigencias[] = 'un caracter especial'; }
+
+        $texto = 'Minimo ' . $p['min'] . ' caracteres';
+        if ($exigencias !== []) {
+            $ultima = array_pop($exigencias);
+            $texto .= ' con ' . ($exigencias === [] ? $ultima : implode(', ', $exigencias) . ' y ' . $ultima);
+        }
+        return $texto . '.';
+    }
+
     public static function validatePasswordPolicy(string $password, array $userData = []): void
     {
-        $min    = configuracionModel::entero('security.password_min_length', 12);
+        $p      = self::politicaContrasena();
         $errors = [];
+        $largo  = mb_strlen($password);
 
-        if (mb_strlen($password) < $min) {
-            $errors['password'] = "La contrasena debe tener al menos {$min} caracteres.";
-        } elseif (mb_strlen($password) > 200) {
-            $errors['password'] = 'La contrasena no puede superar 200 caracteres.';
-        } elseif (
-            preg_match('/[a-z]/', $password) !== 1
-            || preg_match('/[A-Z]/', $password) !== 1
-            || preg_match('/\d/', $password) !== 1
-            || preg_match('/[^a-zA-Z0-9]/', $password) !== 1
-        ) {
-            $errors['password'] = 'La contrasena debe combinar mayusculas, minusculas, numeros y un caracter especial.';
+        if ($largo < $p['min']) {
+            $errors['password'] = "La contrasena debe tener al menos {$p['min']} caracteres.";
+        } elseif ($largo > $p['max']) {
+            $errors['password'] = "La contrasena no puede superar {$p['max']} caracteres.";
+        } else {
+            // Se nombra la clase que falta, no la lista entera: decirle a
+            // alguien "combine mayusculas, minusculas, numeros y simbolos"
+            // cuando solo le falta el simbolo le hace revisar las cuatro.
+            $faltan = [];
+            if ($p['lower']  && preg_match('/[a-z]/', $password) !== 1)        { $faltan[] = 'una minuscula'; }
+            if ($p['upper']  && preg_match('/[A-Z]/', $password) !== 1)        { $faltan[] = 'una mayuscula'; }
+            if ($p['digit']  && preg_match('/\d/', $password) !== 1)           { $faltan[] = 'un numero'; }
+            if ($p['symbol'] && preg_match('/[^a-zA-Z0-9]/', $password) !== 1) { $faltan[] = 'un caracter especial'; }
+
+            if ($faltan !== []) {
+                $ultima = array_pop($faltan);
+                $errors['password'] = 'A la contrasena le falta '
+                    . ($faltan === [] ? $ultima : implode(', ', $faltan) . ' y ' . $ultima) . '.';
+            }
         }
 
-        if ($errors === []) {
+        if ($errors === [] && $p['block_personal']) {
             foreach (['username', 'email', 'national_id', 'first_name', 'last_name'] as $field) {
                 $value = (string) ($userData[$field] ?? '');
                 if ($value !== '' && mb_strlen($value) >= 4 && stripos($password, $value) !== false) {
@@ -269,7 +327,7 @@ class autenticacionModel extends mainModel
             }
         }
 
-        if ($errors === []) {
+        if ($errors === [] && $p['block_common']) {
             $common = ['password', 'contrasena', '12345678', 'qwerty', 'admin123', 'bienvenido', 'empresa123'];
             foreach ($common as $needle) {
                 if (stripos($password, $needle) !== false) {

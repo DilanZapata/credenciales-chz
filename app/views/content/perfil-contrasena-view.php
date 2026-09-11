@@ -4,10 +4,13 @@
 $pageTitle = 'Cambiar contrasena';
 $forced = (int) ((usuarioActual()['must_change_password'] ?? 0)) === 1;
 
-// La longitud minima sale de la politica configurada, no de un numero
-// escrito a mano: si el administrador la sube, el aviso y la validacion
-// del navegador tienen que subir con ella.
-$minimo = \app\models\configuracionModel::entero('security.password_min_length', 12);
+// Las reglas salen de la politica configurada, no de un texto escrito a
+// mano: si el superadministrador la cambia, el aviso y la validacion del
+// navegador cambian con ella. Un aviso que no coincide con lo que el
+// servidor exige es peor que no poner ninguno.
+$politica = \app\models\autenticacionModel::politicaContrasena();
+$minimo   = (int) $politica['min'];
+$reglas   = \app\models\autenticacionModel::descripcionPolitica($politica);
 ?>
 <div class="page-head">
   <div class="page-head__text">
@@ -34,16 +37,16 @@ $minimo = \app\models\configuracionModel::entero('security.password_min_length',
         <label for="password">Nueva contrasena</label>
         <div class="row" style="flex-wrap:nowrap;gap:.35rem">
           <input type="password" id="password" name="password" required autocomplete="new-password"
-                 minlength="<?= (int) $minimo ?>" maxlength="200">
+                 minlength="<?= (int) $minimo ?>" maxlength="<?= (int) $politica['max'] ?>">
           <button type="button" class="btn btn--sm" data-toggle-field="password">Mostrar</button>
         </div>
         <div class="bar" data-strength-for="password"><span style="width:0"></span></div>
         <span class="hint" data-strength-label></span>
-        <span class="hint">Minimo <?= (int) $minimo ?> caracteres con mayusculas, minusculas, numeros y un caracter especial.</span>
+        <span class="hint"><?= e($reglas) ?></span>
       </div>
       <div class="field">
         <label for="password_confirmation">Confirmar nueva contrasena</label>
-        <input type="password" id="password_confirmation" name="password_confirmation" required autocomplete="new-password" maxlength="200">
+        <input type="password" id="password_confirmation" name="password_confirmation" required autocomplete="new-password" maxlength="<?= (int) $politica['max'] ?>">
       </div>
     </div>
     <div class="card__foot row row--end">

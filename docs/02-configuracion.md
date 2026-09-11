@@ -164,3 +164,35 @@ de CSS tiene un impacto mucho menor y no permite ejecutar código.
 
 `Cache-Control: no-store` evita que una ficha con datos sensibles quede en la
 caché del navegador tras cerrar sesión.
+
+---
+
+## Política de contraseñas de acceso
+
+Todas las reglas que se aplican a la contraseña **de los usuarios del
+sistema** se configuran desde *Administración → Configuración*, grupo
+**politica**. No hay que tocar código ni redesplegar.
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `security.password_min_length` | 12 | Longitud mínima |
+| `security.password_max_length` | 200 | Longitud máxima |
+| `security.password_require_upper` | sí | Exigir una mayúscula |
+| `security.password_require_lower` | sí | Exigir una minúscula |
+| `security.password_require_digit` | sí | Exigir un dígito |
+| `security.password_require_symbol` | sí | Exigir un carácter especial |
+| `security.password_block_personal` | sí | Rechazar contraseñas que contengan nombre, apellido, usuario, cédula o correo |
+| `security.password_block_common` | sí | Rechazar `password`, `12345678`, `qwerty` y similares |
+| `security.password_expiry_days` | 90 | Caducidad; 0 la desactiva |
+
+Los cambios surten efecto de inmediato: la siguiente pantalla de cambio de
+contraseña anuncia las reglas nuevas, el navegador exige la longitud nueva
+y el servidor valida contra ellas. El aviso que ve el usuario se construye
+de la configuración vigente, de modo que no puede quedar desfasado — un
+aviso que no coincide con lo que el servidor exige es peor que ninguno,
+porque la persona cumple lo que lee y aun así la rechazan.
+
+> Esto **no** afecta a las contraseñas guardadas en el inventario, que son
+> las de los sistemas de la empresa. Aquellas no las valida este sistema:
+> las impone cada proveedor. El generador criptográfico de la ficha sí
+> permite elegir longitud y conjuntos de caracteres en cada uso.

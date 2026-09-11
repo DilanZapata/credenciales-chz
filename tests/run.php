@@ -1508,6 +1508,69 @@ $t->assert($r['status'] === 302, 'Una contrasena valida se acepta', 'HTTP ' . $r
 $t->equals(0, (int) mainModel::obtenerValor('SELECT must_change_password FROM users WHERE id = ?', [$novatoId]),
     'La marca de cambio obligatorio se retira');
 
+// -------------------------------------------------------------------
+//  La politica de contrasenas la decide el superadministrador
+// -------------------------------------------------------------------
+$politica = static function (array $valores): void {
+    foreach ($valores as $k => $v) {
+        mainModel::ejecutarConsultaAfectadas(
+            'UPDATE settings SET setting_value = ? WHERE setting_key = ?', [(string) $v, $k]
+        );
+    }
+};
+$restaurarPolitica = static function () use ($politica): void {
+    $politica([
+        'security.password_min_length'     => 12,
+        'security.password_require_upper'  => 1,
+        'security.password_require_lower'  => 1,
+        'security.password_require_digit'  => 1,
+        'security.password_require_symbol' => 1,
+    ]);
+};
+
+// Sin simbolo obligatorio, una contrasena sin simbolos pasa a ser valida.
+$politica(['security.password_require_symbol' => 0]);
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(!str_contains((string) $r['body'], 'caracter especial'),
+    'Al desactivar el simbolo obligatorio, el aviso deja de pedirlo');
+$r = $nuevo->post('/perfil/contrasena', [
+    'current_password'      => 'Valida#Nueva2026!',
+    'password'              => 'SinSimbolos12345',
+    'password_confirmation' => 'SinSimbolos12345',
+]);
+$t->assert($r['status'] === 302, 'Sin simbolo obligatorio se acepta una contrasena sin simbolos');
+$t->equals(0, (int) mainModel::obtenerValor('SELECT must_change_password FROM users WHERE id = ?', [$novatoId]),
+    'La contrasena sin simbolos quedo guardada');
+
+// Subir la longitud minima rechaza lo que antes valia, y lo dice.
+$politica(['security.password_min_length' => 24]);
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(str_contains((string) $r['body'], 'Minimo 24 caracteres')
+    && str_contains((string) $r['body'], 'minlength="24"'),
+    'El formulario anuncia y exige la nueva longitud minima');
+$r = $nuevo->post('/perfil/contrasena', [
+    'current_password'      => 'SinSimbolos12345',
+    'password'              => 'MiClaveSegura#2026',
+    'password_confirmation' => 'MiClaveSegura#2026',
+]);
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(str_contains((string) $r['body'], 'al menos 24 caracteres'),
+    'El rechazo cita la longitud configurada, no una escrita a mano');
+
+$restaurarPolitica();
+
+// El mensaje nombra la clase que falta, no la lista entera: decirle a
+// alguien que combine cuatro cosas cuando solo le falta una le hace
+// revisar las cuatro.
+$r = $nuevo->post('/perfil/contrasena', [
+    'current_password'      => 'SinSimbolos12345',
+    'password'              => 'sinmayusculas2026#',
+    'password_confirmation' => 'sinmayusculas2026#',
+]);
+$r = $nuevo->get('/perfil/contrasena');
+$t->assert(str_contains((string) $r['body'], 'le falta una mayuscula'),
+    'El rechazo dice exactamente que clase de caracter falta');
+
 // Lo mismo en un formulario de alta: el rechazo vuelve al formulario.
 $clearLimits();
 $altas = new HttpClient('198.51.100.51');
