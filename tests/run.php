@@ -1593,6 +1593,196 @@ $t->assert($r['status'] === 302
 mainModel::ejecutarConsultaAfectadas('DELETE FROM users WHERE id = ?', [$novatoId]);
 
 // =====================================================================
+//  18. Consulta rapida de accesos (/consulta)
+// =====================================================================
+//
+//  Pantalla publica: la unica que responde sin sesion. Cada parametro que
+//  se enciende amplia lo que un desconocido puede averiguar, asi que lo
+//  que se comprueba aqui es sobre todo que APAGADA no exista y que
+//  encendida no entregue mas de lo configurado.
+// =====================================================================
+$t->group('18. Consulta rapida de accesos');
+
+$ajuste = static function (string $clave, string $valor): void {
+    mainModel::ejecutarConsultaAfectadas(
+        'UPDATE settings SET setting_value = ? WHERE setting_key = ?', [$valor, $clave]
+    );
+};
+$limpiarConsulta = static function (): void {
+    mainModel::ejecutarConsultaAfectadas("DELETE FROM rate_limits WHERE bucket LIKE 'consulta:%'");
+};
+
+// Empleado propio de este grupo: juan.test quedo desactivado en el grupo 7
+// y no serviria. Se le asigna credA con permiso de ver el secreto y credC
+// sin el, para comprobar que la pantalla respeta el permiso fino.
+$hashConsulta = cifradoModel::hashContrasena('Consulta#Prueba2026!');
+$consultaId = mainModel::ejecutarInsert(
+    'INSERT INTO users (national_id, username, email, first_name, last_name,
+                        password_hash, password_algo, must_change_password, status)
+     VALUES (?,?,?,?,?,?,?,0,"active")',
+    ['900000007', 'kiosco.test', 'kiosco@test.local', 'Carmen', 'Prueba',
+     $hashConsulta['hash'], $hashConsulta['algo']]
+);
+mainModel::ejecutarConsultaAfectadas('INSERT INTO user_roles (user_id, role_id) VALUES (?,?)',
+    [$consultaId, $roleIds['CONSULTOR']]);
+// Se usa credB y no credA porque credA se rota en el grupo 6: la pantalla
+// mostraria la contrasena vigente y no la que se creo en las fixtures.
+mainModel::ejecutarConsultaAfectadas(
+    'INSERT INTO credential_assignments (credential_id, user_id, can_view_secret, can_copy_secret, can_view_recovery, granted_by)
+     VALUES (?,?,1,1,0,?)', [$credB['id'], $consultaId, $adminId]);
+mainModel::ejecutarConsultaAfectadas(
+    'INSERT INTO credential_assignments (credential_id, user_id, can_view_secret, can_copy_secret, can_view_recovery, granted_by)
+     VALUES (?,?,0,0,0,?)', [$credC['id'], $consultaId, $adminId]);
+
+// --------- Apagada: la direccion no existe para nadie ---------
+$publico = new HttpClient('198.51.100.60');
+$r = $publico->get('/consulta');
+$t->status(404, $r, 'Apagada, /consulta responde 404 y no revela que existe');
+
+$r = $publico->post('/consulta', ['identifier' => 'juan.test']);
+$t->assert($r['status'] >= 400, 'Apagada, el envio del formulario tampoco responde',
+    'HTTP ' . $r['status']);
+
+// --------- Encendida exigiendo contrasena (por defecto) ---------
+$ajuste('access.quick_lookup_enabled', '1');
+$limpiarConsulta();
+
+$r = $publico->get('/consulta');
+$t->assert($r['status'] === 200 && str_contains((string) $r['body'], 'name="password"'),
+    'Encendida, pide identificador y contrasena', 'HTTP ' . $r['status']);
+
+// Identificador correcto pero contrasena mal: no entra.
+$r = $publico->post('/consulta', ['identifier' => 'kiosco.test', 'password' => 'clave-mala']);
+$r = $publico->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], 'Accesos de'),
+    'Con la contrasena incorrecta no se muestran accesos');
+
+// Una cedula inexistente responde IGUAL que una real con clave mala: si
+// no, la pantalla confirma que cedulas estan registradas en la empresa.
+$limpiarConsulta();
+$publico->post('/consulta', ['identifier' => '000000000', 'password' => 'x']);
+$inexistente = $publico->get('/consulta')['body'];
+$limpiarConsulta();
+$publico->post('/consulta', ['identifier' => 'kiosco.test', 'password' => 'x']);
+$existente = $publico->get('/consulta')['body'];
+$t->assert(str_contains((string) $inexistente, 'No encontramos accesos')
+    && str_contains((string) $existente, 'No encontramos accesos'),
+    'Un identificador inexistente y una contrasena mala dan la misma respuesta');
+
+// Con las credenciales correctas si ve sus accesos.
+$limpiarConsulta();
+$r = $publico->post('/consulta', ['identifier' => 'kiosco.test', 'password' => 'Consulta#Prueba2026!']);
+$r = $publico->get('/consulta');
+$cuerpo = (string) $r['body'];
+$t->assert(str_contains($cuerpo, 'Accesos de') && str_contains($cuerpo, 'Carmen'),
+    'Con las credenciales correctas se listan sus accesos');
+
+// Y NUNCA la contrasena, aunque el parametro de secretos siga apagado.
+$t->assert(!str_contains($cuerpo, $credA['secret']) && !str_contains($cuerpo, $credB['secret'])
+    && !str_contains($cuerpo, 'Ver contrasena'),
+    'Sin habilitar secretos, la lista no trae contrasenas ni boton para verlas');
+
+// El resultado no sobrevive a una recarga: es de un solo uso.
+$r = $publico->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], 'Accesos de'),
+    'Al recargar hay que identificarse de nuevo: el resultado no queda abierto');
+
+// Queda auditado con la persona consultada, aunque no hubo sesion.
+$t->assert((int) mainModel::obtenerValor(
+    "SELECT COUNT(*) FROM audit_logs WHERE action = 'access.quick_lookup' AND user_id = ?", [$consultaId]) >= 1,
+    'La consulta queda auditada y atribuida a la persona consultada');
+$t->assert((int) mainModel::obtenerValor(
+    "SELECT COUNT(*) FROM audit_logs WHERE action = 'access.quick_lookup_denied'") >= 2,
+    'Los intentos fallidos tambien quedan auditados');
+
+// --------- Sin contrasena: basta el identificador ---------
+$ajuste('access.quick_lookup_require_password', '0');
+$limpiarConsulta();
+
+$r = $publico->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], 'name="password"'),
+    'Sin contrasena exigida, el formulario ya no la pide');
+
+$r = $publico->post('/consulta', ['identifier' => '900000007']);   // cedula de Carmen
+$r = $publico->get('/consulta');
+$t->assert(str_contains((string) $r['body'], 'Accesos de'),
+    'Con solo la cedula se listan los accesos');
+$t->assert(!str_contains((string) $r['body'], $credA['secret']),
+    'Con solo la cedula NUNCA aparece una contrasena');
+
+// --------- El limitador corta la prueba masiva de cedulas ---------
+$limpiarConsulta();
+$ajuste('access.quick_lookup_max_attempts', '3');
+$barrido = new HttpClient('198.51.100.61');
+$cortado = false;
+for ($i = 0; $i < 8; $i++) {
+    $r = $barrido->post('/consulta', ['identifier' => '90000000' . $i]);
+    if ($r['status'] === 429) { $cortado = true; break; }
+}
+$t->assert($cortado, 'El limitador corta el barrido de cedulas desde una misma IP');
+$t->assert((int) mainModel::obtenerValor(
+    "SELECT COUNT(*) FROM security_events WHERE type = 'quick_lookup_abuse'") >= 1,
+    'El barrido genera un evento de seguridad');
+$ajuste('access.quick_lookup_max_attempts', '10');
+
+// --------- Con secretos habilitados ---------
+$ajuste('access.quick_lookup_show_secrets', '1');
+$limpiarConsulta();
+
+$publico->post('/consulta', ['identifier' => '900000007']);
+$r = $publico->get('/consulta');
+$t->assert(str_contains((string) $r['body'], 'Ver contrasena'),
+    'Con secretos habilitados aparece el boton de ver contrasena');
+
+// Se revela la que tiene asignada con permiso de ver.
+$limpiarConsulta();
+$consulta2 = new HttpClient('198.51.100.62');
+$consulta2->post('/consulta', ['identifier' => 'kiosco.test']);
+$r = $consulta2->post('/consulta/revelar', ['credential_id' => $credB['id']]);
+$r = $consulta2->get('/consulta');
+$t->assert(str_contains((string) $r['body'], $credB['secret']),
+    'Se revela la contrasena de una credencial asignada con permiso de ver');
+$t->assert((int) mainModel::obtenerValor(
+    "SELECT COUNT(*) FROM secret_access_log WHERE credential_id = ? AND reason = 'consulta rapida' AND user_id = ?",
+    [$credB['id'], $consultaId]) >= 1,
+    'El revelado por consulta rapida deja su registro individual de acceso');
+
+// credC esta asignada SIN permiso de ver el secreto.
+$limpiarConsulta();
+$consulta2->post('/consulta', ['identifier' => 'kiosco.test']);
+$r = $consulta2->post('/consulta/revelar', ['credential_id' => $credC['id']]);
+$r = $consulta2->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], $credC['secret']),
+    'Una asignacion sin permiso de ver el secreto no lo entrega ni por aqui');
+
+// Y una credencial que no tiene asignada, tampoco.
+$limpiarConsulta();
+$consulta2->post('/consulta', ['identifier' => 'kiosco.test']);
+$r = $consulta2->post('/consulta/revelar', ['credential_id' => $credA['id']]);
+$r = $consulta2->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], 'Rotad0-Nuev0#2026'),
+    'No se revela una credencial que no esta asignada a esa persona');
+
+// No se puede pedir el secreto sin haberse identificado antes.
+$suelto = new HttpClient('198.51.100.63');
+$r = $suelto->post('/consulta/revelar', ['credential_id' => $credA['id']]);
+$r = $suelto->get('/consulta');
+$t->assert(!str_contains((string) $r['body'], $credA['secret']),
+    'Sin identificarse primero no se entrega ninguna contrasena');
+
+// --------- Se deja como estaba: apagada ---------
+$ajuste('access.quick_lookup_enabled', '0');
+$ajuste('access.quick_lookup_require_password', '1');
+$ajuste('access.quick_lookup_show_secrets', '0');
+$limpiarConsulta();
+$r = $publico->get('/consulta');
+$t->status(404, $r, 'Al apagarla, la direccion vuelve a no existir');
+
+mainModel::ejecutarConsultaAfectadas('DELETE FROM credential_assignments WHERE user_id = ?', [$consultaId]);
+mainModel::ejecutarConsultaAfectadas('DELETE FROM user_roles WHERE user_id = ?', [$consultaId]);
+mainModel::ejecutarConsultaAfectadas('DELETE FROM users WHERE id = ?', [$consultaId]);
+
+// =====================================================================
 //  Resumen
 // =====================================================================
 exit($t->summary());

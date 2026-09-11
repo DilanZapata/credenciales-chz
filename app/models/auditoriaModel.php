@@ -63,6 +63,8 @@ class auditoriaModel extends mainModel
     public const IMPORT_EXECUTED = 'import.executed';
     public const SESSION_REVOKED = 'session.revoked';
     public const SETTINGS_UPDATED = 'settings.updated';
+    public const QUICK_LOOKUP = 'access.quick_lookup';
+    public const QUICK_LOOKUP_DENIED = 'access.quick_lookup_denied';
     public const CATEGORY_MANAGED = 'category.managed';
     public const ORG_MANAGED = 'org.managed';
     public const ROLE_MANAGED = 'role.managed';
@@ -126,7 +128,9 @@ class auditoriaModel extends mainModel
         ?int $versionSecreto = null,
         string $resultado = 'success',
         ?string $motivo = null,
-        ?int $idReporte = null
+        ?int $idReporte = null,
+        ?int $usuarioForzado = null,
+        ?string $cedulaForzada = null
     ): void {
         try {
             self::ejecutarInsert(
@@ -136,7 +140,10 @@ class auditoriaModel extends mainModel
                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 [
                     $idCredencial, $idSecreto, $campo, $versionSecreto,
-                    contextoModel::id(), contextoModel::cedula(),
+                    // La consulta rapida no abre sesion: el acceso se atribuye
+                    // igualmente a la persona, para que el rastro no quede huerfano.
+                    $usuarioForzado ?? contextoModel::id(),
+                    $cedulaForzada ?? contextoModel::cedula(),
                     $tipoAcceso, $resultado, $motivo, $idReporte,
                     contextoModel::ip(), contextoModel::agente(), contextoModel::idSesion(),
                 ]

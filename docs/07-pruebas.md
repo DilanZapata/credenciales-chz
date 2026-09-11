@@ -34,7 +34,7 @@ archivo marcador (`storage/testing.flag`) que `config/database.php` consulta
 fuera de producción: el proceso de pruebas no puede pasarle variables de
 entorno a Apache.
 
-## 7.2 Qué cubre (340 comprobaciones)
+## 7.2 Qué cubre (368 comprobaciones)
 
 | Grupo | Qué verifica |
 |---|---|
@@ -55,12 +55,13 @@ entorno a Apache.
 | **15. Ensamblado de vistas** | Las 27 páginas privadas se dibujan completas, con marco, hojas y guiones, y **sin un solo aviso de PHP ni rutas del servidor**; cada vista carga sólo sus recursos; las públicas se dibujan sin menú; dirección desconocida con 404; recurso inexistente con 404; el consultor rechazado por URL directa en 5 vistas; el panel lo lleva a "Mis accesos"; sin sesión, redirección al acceso |
 | **16. Superficie de la arquitectura** | Doce archivos internos y cuatro de la raíz (Dockerfile, compose, `.env.example`, `.gitignore`) (modelos, controladores, vistas, arranque, autocargador, configuración, consola) **no descargables por HTTP**; los recursos sí; una dirección de sólo lectura rechaza el POST; el despacho rechaza `DELETE`; el fallo de CSRF con `X-Csrf-Failure` y sin filtrar rutas; `redirect` no permite salir del sitio; CSP con nonce distinto en cada petición, `no-store` y `X-Frame-Options` |
 | **17. Los rechazos se explican** | Un envío rechazado vuelve **al formulario que lo produjo** (alta, edición, cambio de contraseña), con el motivo concreto a la vista; el aviso se consume y no reaparece; sobrevive a una redirección del portero; el campo declara `minlength` y la regla mostrada sigue a la política configurada |
+| **18. Consulta rápida** | Apagada responde 404 también al POST; encendida pide lo configurado; identificador inexistente y contraseña mala dan la misma respuesta; el resultado no sobrevive a una recarga; el límite por IP corta el barrido de cédulas y genera evento de seguridad; sin habilitar secretos no hay contraseñas ni botón; con secretos, solo las asignaciones que lo permiten, y queda en `secret_access_log`; sin identificarse antes no se entrega nada |
 
 ## 7.3 Resultado
 
 ```
 ══════════════════════════════════════════════════════════════════════
-  TODAS LAS PRUEBAS SUPERADAS  (340/340)
+  TODAS LAS PRUEBAS SUPERADAS  (368/368)
 ══════════════════════════════════════════════════════════════════════
 ```
 

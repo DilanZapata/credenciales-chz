@@ -308,3 +308,50 @@ Desactiva el segundo factor y cierra las sesiones de esa persona. Si su
 rol exige MFA, al entrar se le pedirá configurarlo de nuevo, lo cual es lo
 correcto: la excepción es para recuperar el acceso, no para quedarse sin
 segundo factor.
+
+---
+
+## Consulta rápida de accesos (`/consulta`)
+
+Pantalla pública y escueta para que un empleado vea en qué sistemas tiene
+cuenta sin recorrer el panel completo. Útil en una recepción, una planta o
+un computador compartido.
+
+**Viene apagada.** Mientras lo esté, la dirección responde 404 para
+cualquiera: no se anuncia como «deshabilitada», simplemente no existe.
+
+Se configura en *Administración → Configuración*, grupo **consulta**:
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `access.quick_lookup_enabled` | **no** | Enciende la pantalla |
+| `access.quick_lookup_require_password` | **sí** | Exige contraseña además del identificador |
+| `access.quick_lookup_show_secrets` | **no** | Permite revelar contraseñas desde ahí |
+| `access.quick_lookup_max_attempts` | 10 | Consultas por hora y dirección IP |
+
+### Qué protege la pantalla
+
+- Un identificador inexistente y una contraseña incorrecta dan **la misma
+  respuesta**. Si no, la pantalla sería una forma de averiguar qué cédulas
+  están registradas en la empresa.
+- El límite por IP corta el barrido automático de cédulas y genera un
+  evento de seguridad.
+- El resultado es **de un solo uso**: al recargar hay que identificarse de
+  nuevo. Importa en un computador compartido.
+- Toda consulta queda auditada, acierte o falle, atribuida a la persona
+  consultada aunque no haya sesión.
+- Revelar una contraseña exige además que la asignación de esa persona lo
+  permita, y deja su registro en `secret_access_log` igual que desde el
+  panel.
+
+### Sobre apagar la contraseña
+
+Con `require_password` en **no**, basta la cédula. En Colombia la cédula
+aparece en facturas, formularios y documentos de todo tipo: cualquiera que
+tenga una podrá ver en qué sistemas trabaja esa persona.
+
+Combinarlo con `show_secrets` en **sí** significa que quien tenga una
+cédula ajena puede sacar las contraseñas de esa persona, y la auditoría
+registrará a la víctima como autora de la consulta. Es una combinación
+defendible en una red interna aislada; en una pantalla expuesta a internet
+es equivalente a publicar el inventario.

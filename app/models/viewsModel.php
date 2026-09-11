@@ -35,6 +35,7 @@ class viewsModel
         'recuperar'             => ['login.css'],
         'restablecer'           => ['login.css'],
         'mfa'                   => ['login.css'],
+        'consulta'              => ['login.css', 'secretos.css'],
         'credenciales-detalle'  => ['secretos.css'],
         'credenciales-historial'=> ['secretos.css'],
         'mis-accesos'           => ['secretos.css'],
@@ -82,6 +83,9 @@ class viewsModel
         '/recuperar'          => 'recuperar',
         '/restablecer/{token}'=> 'restablecer',
         '/mfa'                => 'mfa',
+        // Consulta rapida: publica a proposito, pero solo responde si el
+        // superadministrador la habilito en la configuracion.
+        '/consulta'           => 'consulta',
     ];
 
     /**

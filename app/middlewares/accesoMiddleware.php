@@ -44,8 +44,12 @@ class accesoMiddleware
 
         if ($publica) {
             // Un usuario ya autenticado no vuelve al formulario de acceso.
+            // La consulta rapida queda fuera de esa regla: no es una puerta
+            // de entrada, es una pantalla de consulta, y un administrador
+            // tiene que poder abrirla para comprobar como la ve la gente.
             $sesion = contextoModel::sesion();
-            if ($sesion !== null && (int) ($sesion['pending_mfa'] ?? 0) === 0 && $ruta !== '/mfa') {
+            $esPuertaDeAcceso = !in_array($ruta, ['/mfa', '/consulta'], true);
+            if ($sesion !== null && (int) ($sesion['pending_mfa'] ?? 0) === 0 && $esPuertaDeAcceso) {
                 return $base . '/';
             }
             return null;

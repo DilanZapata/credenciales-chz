@@ -38,7 +38,8 @@ use Throwable;
 class despachoController extends baseController
 {
     /** Rutas que no exigen sesion. */
-    private const PUBLICAS = ['/entrar', '/recuperar', '/restablecer', '/mfa/verificar'];
+    private const PUBLICAS = ['/entrar', '/recuperar', '/restablecer', '/mfa/verificar',
+                              '/consulta', '/consulta/revelar'];
 
     /**
      * Pagina a la que se devuelve al usuario cuando el envio se rechaza.
@@ -66,6 +67,12 @@ class despachoController extends baseController
             self::paginaError(405, 'Metodo no permitido',
                 'El metodo ' . $simulado . ' no se admite en este formulario.');
         }
+
+        // Los mensajes que dejo la peticion anterior se cargan tambien aqui:
+        // index.php solo lo hacia al dibujar una pagina, de modo que un
+        // formulario no podia leer lo que dejo el anterior. La consulta
+        // rapida lo necesita para saber a quien se identifico.
+        Flash::cargarDeCookie();
 
         [$patron, $parametros] = viewsModel::patron($ruta);
         self::$origen = self::origenDelFormulario($patron, $parametros);
@@ -126,6 +133,10 @@ class despachoController extends baseController
             case '/salir':           self::cerrarSesion();
             case '/recuperar':       self::solicitarRecuperacion($c);
             case '/restablecer':     self::restablecer($c);
+
+            // -------------------- Consulta rapida ---------------------
+            case '/consulta':         self::consultar($c);
+            case '/consulta/revelar': self::revelarEnConsulta($c);
 
             // ------------------------- Perfil -------------------------
             case '/perfil/contrasena':
@@ -422,6 +433,78 @@ class despachoController extends baseController
         self::salir('/entrar');
     }
 
+    /**
+     * Identificacion en la consulta rapida.
+     *
+     * El identificador se guarda en el mensaje de un solo uso, no en una
+     * sesion: esta pantalla no autentica a nadie, solo resuelve a quien
+     * pertenecen unos accesos. Al recargar hay que identificarse otra vez,
+     * que es lo correcto en un computador compartido.
+     *
+     * @param array<string,mixed> $c
+     */
+    private static function consultar(array $c): never
+    {
+        // Apagada, la direccion no existe tampoco para las escrituras: de
+        // otro modo el formulario respondia distinto que la pagina y
+        // confirmaba que la pantalla esta ahi, solo que deshabilitada.
+        if (!\app\models\consultaModel::habilitada()) {
+            self::paginaError(404, 'No encontrado', 'La direccion solicitada no existe.');
+        }
+
+        $r = consultaController::identificarController($c);
+
+        if (($r['status'] ?? '') !== 'success') {
+            $codigo = (int) ($r['code'] ?? 400);
+
+            // El limitador debe verse como tal: si se redirigiera con un
+            // aviso, un barrido automatico no distinguiria "no existe" de
+            // "le hemos cortado" y seguiria probando cedulas.
+            if ($codigo === 429) {
+                self::paginaError(429, 'Demasiadas solicitudes', (string) $r['message']);
+            }
+
+            // Un identificador que no existe responde igual que uno con la
+            // contrasena mal: la pantalla no confirma que cedulas estan
+            // registradas en la empresa.
+            self::error((string) $r['message']);
+            self::salir('/consulta');
+        }
+
+        Flash::set('consulta_usuario', (int) $r['data']['user_id']);
+        self::salir('/consulta');
+    }
+
+    /** @param array<string,mixed> $c */
+    private static function revelarEnConsulta(array $c): never
+    {
+        // El identificador viene del mensaje anterior, NUNCA del formulario:
+        // si lo enviara el cliente, cualquiera pediria las contrasenas de
+        // otro cambiando un numero.
+        $idUsuario = Flash::get('consulta_usuario');
+        if (!is_int($idUsuario) && !(is_string($idUsuario) && ctype_digit($idUsuario))) {
+            self::error('Su consulta expiro. Identifiquese de nuevo.');
+            self::salir('/consulta');
+        }
+
+        $r = consultaController::revelarController(
+            (int) $idUsuario,
+            (int) ($c['credential_id'] ?? 0)
+        );
+
+        // El identificador se renueva para que la pagina siguiente siga
+        // mostrando la lista.
+        Flash::set('consulta_usuario', (int) $idUsuario);
+
+        if (($r['status'] ?? '') !== 'success') {
+            self::error((string) $r['message']);
+            self::salir('/consulta');
+        }
+
+        Flash::set('consulta_revelado', $r['data']);
+        self::salir('/consulta');
+    }
+
     /** @param array<string,mixed> $c */
     private static function generarReporte(array $c): never
     {
@@ -583,6 +666,9 @@ class despachoController extends baseController
             '/admin/sedes',
             '/admin/departamentos'            => '/admin/organizacion',
             '/admin/roles/{id}/permisos'      => '/admin/roles',
+
+            '/consulta',
+            '/consulta/revelar'               => '/consulta',
 
             '/importar/previa',
             '/importar/ejecutar'              => '/importar',
