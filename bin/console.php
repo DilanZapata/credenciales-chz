@@ -26,6 +26,7 @@ use App\Core\Config;
 use App\Core\Env;
 use App\Support\Migrator;
 use app\models\alertaModel;
+use app\models\autenticacionModel;
 use app\models\cifradoModel;
 use app\models\exportacionModel;
 use app\models\generadorModel;
@@ -431,6 +432,47 @@ switch ($command) {
         out();
         break;
 
+    /**
+     * Desactiva el segundo factor de un usuario desde la consola.
+     *
+     * Segunda salida de emergencia. Restablecer la contrasena no basta si
+     * la cuenta exige TOTP: sin el telefono ni los codigos de respaldo, el
+     * acceso queda cerrado de forma definitiva. Esto lo reabre.
+     *
+     *   php bin/console.php user:mfa-off admin
+     */
+    case 'user:mfa-off':
+        $identificador = $argv[2] ?? '';
+        if ($identificador === '') {
+            fail('Indique el usuario:  php bin/console.php user:mfa-off <usuario>');
+            exit(1);
+        }
+
+        $fila = mainModel::obtenerFila(
+            'SELECT id, username, mfa_enabled FROM users
+             WHERE username = ? OR national_id = ? OR email = ? LIMIT 1',
+            [$identificador, $identificador, $identificador]
+        );
+        if ($fila === null) {
+            fail('No existe ningun usuario con "' . $identificador . '".');
+            exit(1);
+        }
+
+        autenticacionModel::disableMfa((int) $fila['id'], (int) $fila['id']);
+        sesionModel::revocarTodasDeUsuario((int) $fila['id'], null, 'segundo factor desactivado desde consola');
+
+        ok('Segundo factor desactivado para "' . $fila['username'] . '".');
+        out('  Vuelva a configurarlo desde Mi perfil en cuanto recupere el acceso.');
+
+        // Si el rol lo exige, el portero le obligara a configurarlo de nuevo
+        // en el siguiente ingreso; queda avisado para que no le sorprenda.
+        if (autenticacionModel::userRequiresMfa((int) $fila['id'])) {
+            warn('Su rol exige segundo factor: al entrar se le pedira configurarlo otra vez.');
+            out('  Para no exigirlo, desactive "security.mfa_required_admins" en Configuracion.');
+        }
+        out();
+        break;
+
     case 'doctor':
         title('Diagnostico de la instalacion');
         $checks = [
@@ -582,6 +624,7 @@ switch ($command) {
         out('  user:create     Crea un usuario (interactivo)');
         out('  user:bootstrap  Crea el primer superadministrador sin preguntas (contenedores)');
         out('  user:reset      Restablece la contrasena de un usuario: user:reset <usuario>');
+        out('  user:mfa-off    Desactiva el segundo factor: user:mfa-off <usuario>');
         out('  alerts:run      Evalua y despacha alertas (programar en cron)');
         out('  maintenance     Purga archivos, sesiones y limitadores vencidos (cron)');
         out('  key:rotate      Rota el llavero y re-cifra los secretos');

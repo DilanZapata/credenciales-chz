@@ -292,3 +292,19 @@ docker exec -it <contenedor> php bin/console.php user:reset admin
 
 Queda registrado en la auditoría como cualquier otro cambio de
 contraseña.
+
+### Si se pierde el teléfono con el segundo factor
+
+Restablecer la contraseña **no basta**: si la cuenta exige TOTP, el acceso
+sigue cerrado. Primero se prueban los **códigos de respaldo** que el
+sistema entregó al activarlo; cada uno sirve una sola vez. Si tampoco
+están, desde la consola del servidor:
+
+```bash
+php bin/console.php user:mfa-off admin
+```
+
+Desactiva el segundo factor y cierra las sesiones de esa persona. Si su
+rol exige MFA, al entrar se le pedirá configurarlo de nuevo, lo cual es lo
+correcto: la excepción es para recuperar el acceso, no para quedarse sin
+segundo factor.
