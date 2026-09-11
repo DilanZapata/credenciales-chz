@@ -3,7 +3,48 @@ declare(strict_types=1);
 
 use App\Core\Env;
 
-$database = (string) Env::get('DB_DATABASE', 'credenciales_corp');
+/**
+ * Conexion en una sola variable.
+ *
+ * Los paneles de despliegue (Dokploy, Railway, Render...) entregan la
+ * conexion como una URL:
+ *
+ *     mysql://usuario:clave@servidor:3306/basedatos
+ *
+ * Admitirla evita tener que repartir a mano cinco variables y equivocarse
+ * en una. Las DB_* sueltas siguen funcionando y tienen prioridad, para no
+ * romper instalaciones existentes.
+ *
+ * La contrasena se decodifica: un caracter como @ o / viaja en la URL
+ * escapado (%40, %2F) y sin decodificar la autenticacion falla con un
+ * "Access denied" que no dice por que.
+ */
+$url = trim((string) Env::get('DATABASE_URL', ''));
+$deUrl = [];
+if ($url !== '') {
+    $partes = parse_url($url);
+    if ($partes !== false && isset($partes['host'])) {
+        $deUrl = [
+            'host'     => $partes['host'],
+            'port'     => (int) ($partes['port'] ?? 3306),
+            'database' => ltrim((string) ($partes['path'] ?? ''), '/'),
+            'username' => isset($partes['user']) ? rawurldecode($partes['user']) : null,
+            'password' => isset($partes['pass']) ? rawurldecode($partes['pass']) : null,
+        ];
+        $deUrl = array_filter($deUrl, static fn ($v) => $v !== null && $v !== '' && $v !== 0);
+    }
+}
+
+/** Valor suelto si existe; si no, el de la URL; si no, el de por defecto. */
+$valor = static function (string $clave, string $campo, mixed $porDefecto) use ($deUrl): mixed {
+    $suelto = Env::get($clave);
+    if ($suelto !== null && $suelto !== '') {
+        return $suelto;
+    }
+    return $deUrl[$campo] ?? $porDefecto;
+};
+
+$database = (string) $valor('DB_DATABASE', 'database', 'credenciales_corp');
 
 /**
  * Conmutador de base de datos para la bateria de pruebas.
@@ -28,11 +69,11 @@ if (Env::get('APP_ENV', 'production') !== 'production') {
 }
 
 return [
-    'host'     => Env::get('DB_HOST', '127.0.0.1'),
-    'port'     => (int) Env::get('DB_PORT', 3306),
+    'host'     => $valor('DB_HOST', 'host', '127.0.0.1'),
+    'port'     => (int) $valor('DB_PORT', 'port', 3306),
     'database' => $database,
-    'username' => Env::get('DB_USERNAME', 'root'),
-    'password' => (string) Env::get('DB_PASSWORD', ''),
+    'username' => $valor('DB_USERNAME', 'username', 'root'),
+    'password' => (string) $valor('DB_PASSWORD', 'password', ''),
     'charset'  => 'utf8mb4',
     'socket'   => Env::get('DB_SOCKET', ''),
 ];

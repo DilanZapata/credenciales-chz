@@ -20,6 +20,7 @@ Hay dos niveles de configuración, deliberadamente separados:
 | `APP_ORGANIZATION` | Mi Empresa | Nombre de la organización |
 | `APP_ENV` | production | Entorno |
 | `APP_DEBUG` | false | **Nunca `true` en producción**: expone mensajes internos |
+| `DATABASE_URL` | *(vacío)* | Conexión completa en una línea: `mysql://usuario:clave@servidor:3306/base`. Alternativa a las cinco `DB_*`; si define ambas, mandan las sueltas |
 | `APP_URL` | http://localhost/credencial | URL base; se usa para validar el `Origin` |
 | `APP_BASE_PATH` | /credencial | Prefijo de las rutas; vacío si hay VirtualHost propio |
 | `APP_TIMEZONE` | America/Bogota | Zona horaria de fechas y auditoría |
