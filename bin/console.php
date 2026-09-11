@@ -377,6 +377,60 @@ switch ($command) {
         out();
         break;
 
+    /**
+     * Restablece la contrasena de un usuario desde la consola.
+     *
+     * Salida de emergencia: si se pierde la contrasena temporal del primer
+     * acceso, no hay otra forma de entrar. El restablecimiento por correo
+     * exige un servidor de correo configurado, y en una instalacion recien
+     * desplegada normalmente todavia no lo esta.
+     *
+     *   php bin/console.php user:reset admin
+     */
+    case 'user:reset':
+        $identificador = $argv[2] ?? (getenv('ADMIN_USERNAME') ?: '');
+        if ($identificador === '') {
+            fail('Indique el usuario o la cedula:  php bin/console.php user:reset <usuario>');
+            exit(1);
+        }
+
+        $fila = mainModel::obtenerFila(
+            'SELECT id, username, national_id, status FROM users
+             WHERE username = ? OR national_id = ? OR email = ? LIMIT 1',
+            [$identificador, $identificador, $identificador]
+        );
+        if ($fila === null) {
+            fail('No existe ningun usuario con "' . $identificador . '".');
+            exit(1);
+        }
+
+        $clave = generadorModel::generate(['length' => 20, 'exclude_ambiguous' => true]);
+        $hash  = cifradoModel::hashContrasena($clave);
+
+        usuarioModel::updatePassword((int) $fila['id'], $hash['hash'], $hash['algo'], true);
+        usuarioModel::clearLock((int) $fila['id']);
+        // Los frenos acumulados por los intentos fallidos se liberan: si no,
+        // la contrasena nueva se rechazaria igual durante varios minutos.
+        mainModel::ejecutarConsultaAfectadas("DELETE FROM rate_limits WHERE bucket LIKE 'login:%'");
+        // Las sesiones abiertas dejan de valer: si alguien entro con la
+        // contrasena perdida, este restablecimiento lo echa fuera.
+        sesionModel::revocarTodasDeUsuario((int) $fila['id'], null, 'restablecimiento desde consola');
+
+        if ($fila['status'] !== 'active') {
+            warn('El usuario esta en estado "' . $fila['status'] . '" y no podra entrar hasta reactivarlo.');
+        }
+
+        out();
+        out(str_repeat('=', 64));
+        out('  CONTRASENA RESTABLECIDA');
+        out(str_repeat('=', 64));
+        out('  Usuario:    ' . $fila['username'] . '   (o la cedula ' . $fila['national_id'] . ')');
+        out('  Contrasena: ' . $clave);
+        out(str_repeat('=', 64));
+        warn('Se muestra UNA sola vez. Debera cambiarla al entrar.');
+        out();
+        break;
+
     case 'doctor':
         title('Diagnostico de la instalacion');
         $checks = [
@@ -527,6 +581,7 @@ switch ($command) {
         out('  db:clean        Borra datos operativos y deja solo el superadministrador');
         out('  user:create     Crea un usuario (interactivo)');
         out('  user:bootstrap  Crea el primer superadministrador sin preguntas (contenedores)');
+        out('  user:reset      Restablece la contrasena de un usuario: user:reset <usuario>');
         out('  alerts:run      Evalua y despacha alertas (programar en cron)');
         out('  maintenance     Purga archivos, sesiones y limitadores vencidos (cron)');
         out('  key:rotate      Rota el llavero y re-cifra los secretos');

@@ -263,3 +263,32 @@ php bin/console.php maintenance    # purga archivos, sesiones y limitadores (cro
 php bin/console.php key:rotate     # rota el llavero y re-cifra los secretos
 php bin/console.php doctor         # diagnóstico de la instalación
 ```
+
+---
+
+## Si nadie puede entrar
+
+La contraseña de acceso se guarda con bcrypt sobre un prehash HMAC: es
+irreversible a propósito y no hay forma de leerla, ni para el
+desarrollador. Si se pierde la del primer acceso —o un administrador
+queda bloqueado y el correo de recuperación todavía no está
+configurado—, se restablece desde la consola del servidor:
+
+```bash
+php bin/console.php user:reset admin
+```
+
+Acepta el usuario, la cédula o el correo. Imprime una contraseña temporal
+una sola vez, obliga a cambiarla al entrar, libera el bloqueo por intentos
+fallidos y **cierra todas las sesiones abiertas de esa persona**: si
+alguien había entrado con la contraseña perdida, el restablecimiento lo
+echa fuera.
+
+En un despliegue con Docker se ejecuta desde la terminal del contenedor:
+
+```bash
+docker exec -it <contenedor> php bin/console.php user:reset admin
+```
+
+Queda registrado en la auditoría como cualquier otro cambio de
+contraseña.
