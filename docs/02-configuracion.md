@@ -166,6 +166,42 @@ caracteres; esa es la que se guarda aquí.
 
 Una cuenta gratuita admite del orden de 500 mensajes al día.
 
+#### Plantillas
+
+El texto y el diseño de cada aviso se editan en *Administración → Correo →
+Plantillas* (`/admin/correo/plantillas`). Cada tipo tiene asunto, cuerpo en HTML
+y cuerpo en texto plano, y admite variables entre llaves dobles:
+
+| Tipo | Cuándo se envía | Variables |
+|---|---|---|
+| `password_reset` | Alguien pide recuperar su acceso | `{{app}}` `{{nombre}}` `{{usuario}}` `{{enlace}}`\* `{{minutos}}` `{{fecha}}` |
+| `alert_digest` | Resumen diario de alertas | `{{app}}` `{{total}}` `{{alertas}}`\* `{{fecha}}` |
+
+\* Obligatorias: sin ellas el mensaje no sirve de nada y el formulario no deja
+guardar.
+
+Reglas que conviene conocer antes de editar:
+
+- **El catálogo de variables vive en el código**, no en la base
+  (`plantillaCorreoModel::CATALOGO`). Usar una variable que no existe para ese
+  tipo es un error de validación, no un `{{hueco}}` que llega al destinatario.
+- **Los valores se escapan solos** al insertarse en el HTML. Un nombre con
+  etiquetas no puede inyectar nada. La excepción son las variables que compone
+  el propio sistema —`{{alertas}}`—, que ya llegan como HTML.
+- **Una plantilla desactivada no deja al sistema mudo**: se usa el contenido de
+  fábrica que trae el código. Un borrador a medias nunca impide que salga un
+  restablecimiento de contraseña.
+- **El cuerpo en texto plano es obligatorio.** Es lo que ven los clientes que no
+  muestran HTML.
+- *Restaurar* borra la plantilla en vez de copiar el texto de fábrica, de modo
+  que el tipo sigue heredando las mejoras de versiones futuras.
+- Los clientes de correo descartan las hojas de estilo: use **estilos en línea y
+  tablas**. La vista previa del editor no carga imágenes externas —la política de
+  seguridad del panel lo impide— pero en el correo real sí se ven.
+
+El cortafuegos que bloquea mensajes con aspecto de contener contraseñas sigue
+revisando el resultado ya compuesto, venga de una plantilla propia o de fábrica.
+
 #### Comprobar que funciona
 
 La pantalla tiene un botón **Enviar prueba** que muestra literalmente lo que

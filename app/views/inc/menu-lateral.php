@@ -83,6 +83,7 @@ $esAdmin     = puede('credentials.view_all');
       <?php if (puede('settings.manage')): ?>
         <a class="nav-item <?= active('/admin/configuracion', $ruta) ?>" href="<?= e(url('/admin/configuracion')) ?>"><span class="ico">⚙</span> Configuracion</a>
         <a class="nav-item <?= active('/admin/correo', $ruta) ?>" href="<?= e(url('/admin/correo')) ?>"><span class="ico">✉</span> Correo</a>
+        <a class="nav-item <?= active('/admin/correo/plantillas', $ruta) ?>" href="<?= e(url('/admin/correo/plantillas')) ?>"><span class="ico">📝</span> Plantillas</a>
       <?php endif; ?>
     </div>
     <?php endif; ?>

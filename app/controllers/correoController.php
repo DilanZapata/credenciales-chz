@@ -12,6 +12,7 @@ use app\models\correoModel;
 use app\models\contextoModel;
 use app\models\limitadorModel;
 use app\models\permisoModel;
+use app\models\plantillaCorreoModel;
 use Throwable;
 
 /**
@@ -136,6 +137,95 @@ class correoController extends baseController
 
             return ['ok' => true, 'error' => null];
         }, 'Prueba de correo');
+    }
+
+    // ------------------------- Plantillas ----------------------------
+
+    public static function plantillasController(): array
+    {
+        return self::responder(static function (): array {
+            permisoModel::exigir('settings.manage');
+            return ['items' => plantillaCorreoModel::todas()];
+        }, 'Plantillas de correo');
+    }
+
+    public static function plantillaController(string $codigo): array
+    {
+        return self::responder(static function () use ($codigo): array {
+            permisoModel::exigir('settings.manage');
+            $ficha = plantillaCorreoModel::obtener($codigo);
+            if ($ficha === null) {
+                throw HttpException::notFound('No existe ese tipo de correo.');
+            }
+            return [
+                'plantilla' => $ficha,
+                'ejemplo'   => plantillaCorreoModel::ejemplo($codigo),
+                'muestra'   => plantillaCorreoModel::componer($codigo, plantillaCorreoModel::ejemplo($codigo)),
+            ];
+        }, 'Plantilla de correo');
+    }
+
+    /** @param array<string,mixed> $variables */
+    public static function guardarPlantillaController(string $codigo, array $variables): array
+    {
+        return self::responder(static function () use ($codigo, $variables): array {
+            permisoModel::exigir('settings.manage');
+            permisoModel::exigirReautenticacion('secret');
+
+            if (!plantillaCorreoModel::existe($codigo)) {
+                throw HttpException::notFound('No existe ese tipo de correo.');
+            }
+
+            // Volver al contenido de fabrica es borrar la fila, no guardar
+            // una copia de lo que trae el codigo: asi la plantilla sigue
+            // heredando las mejoras de versiones futuras.
+            if (self::booleano($variables, 'restaurar')) {
+                plantillaCorreoModel::restaurar($codigo);
+                auditoriaModel::registrar(auditoriaModel::SETTINGS_UPDATED, 'mail_template', $codigo,
+                    'Plantilla restaurada', 'success', ['plantilla' => $codigo], 'notice');
+                return ['restaurada' => true];
+            }
+
+            $datos = Validator::make($variables)
+                ->string('subject', 'El asunto', 3, 255)
+                ->text('body_text', 'El cuerpo en texto plano', 20000, true)
+                ->text('body_html', 'El cuerpo en HTML', 100000, false)
+                ->bool('enabled')
+                ->validated();
+
+            $asunto = (string) $datos['subject'];
+            $texto  = (string) $datos['body_text'];
+            $html   = (string) ($datos['body_html'] ?? '');
+
+            $errores = [];
+
+            // Una variable mal escrita saldria tal cual al destinatario.
+            $desconocidas = plantillaCorreoModel::variablesDesconocidas($codigo, $asunto, $texto, $html);
+            if ($desconocidas !== []) {
+                $errores['body_html'] = 'Estas variables no existen para este tipo de correo: {{'
+                    . implode('}}, {{', $desconocidas) . '}}.';
+            }
+
+            // Sin el enlace, el correo de restablecimiento no sirve de nada.
+            $faltan = plantillaCorreoModel::obligatoriasAusentes($codigo, $texto, $html);
+            if ($faltan !== []) {
+                $errores['body_text'] = 'Falta la variable obligatoria {{' . implode('}}, {{', $faltan) . '}}.';
+            }
+
+            if ($errores !== []) {
+                throw new ValidationException($errores);
+            }
+
+            $id = plantillaCorreoModel::guardar($codigo, $asunto, $html, $texto,
+                (bool) $datos['enabled'], contextoModel::id());
+
+            auditoriaModel::registrar(auditoriaModel::SETTINGS_UPDATED, 'mail_template', $codigo,
+                'Plantilla de correo', 'success',
+                ['plantilla' => $codigo, 'activa' => (bool) $datos['enabled'], 'con_html' => $html !== ''],
+                'notice');
+
+            return ['id' => $id, 'restaurada' => false];
+        }, 'Plantilla guardada');
     }
 
     /**

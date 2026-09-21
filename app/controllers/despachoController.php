@@ -319,6 +319,14 @@ class despachoController extends baseController
             case '/admin/correo/prueba':
                 self::probarCorreo($c);
 
+            case '/admin/correo/plantillas':
+                // El tipo viaja en el cuerpo, no en la direccion: los
+                // codigos del catalogo no son numericos y el normalizador
+                // de rutas solo sabe extraer numeros y tokens.
+                $tipo = (string) ($c['code'] ?? '');
+                self::resultado(correoController::guardarPlantillaController($tipo, $c),
+                    'Plantilla guardada.', '/admin/correo/plantillas?tipo=' . rawurlencode($tipo));
+
             default:
                 // Direccion valida para leer pero no para escribir (o
                 // inexistente): no se dice cual de las dos.
@@ -408,7 +416,8 @@ class despachoController extends baseController
             correoModel::sendPasswordResetLink(
                 (string) $resultado['user']['email'],
                 (string) $resultado['user']['first_name'],
-                $enlace
+                $enlace,
+                (string) $resultado['user']['username']
             );
             // En desarrollo se muestra el enlace para poder probar el flujo
             // sin servidor de correo configurado.
@@ -711,6 +720,9 @@ class despachoController extends baseController
             '/admin/departamentos'            => '/admin/organizacion',
             '/admin/roles/{id}/permisos'      => '/admin/roles',
             '/admin/correo/prueba'            => '/admin/correo',
+            '/admin/correo/plantillas'        => '/admin/correo/plantillas'
+                . (isset($_POST['code']) && is_string($_POST['code'])
+                    ? '?tipo=' . rawurlencode($_POST['code']) : ''),
 
             '/consulta',
             '/consulta/revelar',

@@ -220,6 +220,24 @@
     }, 60000);
   }
 
+  /**
+   * Confirmacion de acciones destructivas.
+   *
+   * El atributo data-confirm ya se usaba en ocho pantallas (archivar un
+   * sistema, revocar accesos, cerrar sesiones ajenas, restablecer
+   * contrasenas) pero no habia nada que lo leyera: esos botones actuaban
+   * sin preguntar.
+   */
+  function initConfirm() {
+    document.addEventListener('submit', function (e) {
+      var origen = e.target.closest('[data-confirm]');
+      if (!origen) { return; }
+      if (!window.confirm(origen.dataset.confirm)) { e.preventDefault(); }
+    });
+
+  }
+
+  document.addEventListener('DOMContentLoaded', initConfirm);
   document.addEventListener('DOMContentLoaded', initSessionWatch);
 
   // Lo que consumen las hojas de cada vista.

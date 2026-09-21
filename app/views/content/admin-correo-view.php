@@ -19,6 +19,9 @@ $ultimaOk    = $cfg['last_test_ok'];
     <p>Sin esto configurado el sistema no puede enviar el enlace de restablecimiento de contrasena
        ni los resumenes de alertas. Los cambios exigen reautenticacion y quedan en auditoria.</p>
   </div>
+  <div class="page-actions">
+    <a class="btn" href="<?= e(url('/admin/correo/plantillas')) ?>">Plantillas</a>
+  </div>
 </div>
 
 <?php if (!$activo): ?>

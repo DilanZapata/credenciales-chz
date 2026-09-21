@@ -174,15 +174,17 @@ class correoModel extends mainModel
         return implode("\n", $lineas);
     }
 
-    public static function sendPasswordResetLink(string $to, string $name, string $link): bool
+    public static function sendPasswordResetLink(string $to, string $name, string $link, string $usuario = ''): bool
     {
-        $app  = (string) Config::get('app.name', 'Gestion de Credenciales');
-        $body = "Hola {$name}:\n\n"
-              . "Recibimos una solicitud para restablecer su contrasena de acceso a {$app}.\n\n"
-              . "Abra el siguiente enlace (valido por 30 minutos y de un solo uso):\n{$link}\n\n"
-              . "Si usted no realizo esta solicitud, ignore este mensaje y avise al administrador.\n\n"
-              . "Por seguridad, este sistema nunca envia contrasenas por correo electronico.\n";
-        return self::send($to, "[{$app}] Restablecimiento de contrasena", $body);
+        $mensaje = plantillaCorreoModel::componer('password_reset', [
+            'app'     => (string) Config::get('app.name', 'Gestion de Credenciales'),
+            'nombre'  => $name,
+            'usuario' => $usuario,
+            'enlace'  => $link,
+            'minutos' => '30',
+            'fecha'   => date('d/m/Y H:i'),
+        ]);
+        return self::send($to, $mensaje['subject'], $mensaje['text'], $mensaje['html']);
     }
 
     /** @param array<int,array<string,mixed>> $alerts */
@@ -191,13 +193,24 @@ class correoModel extends mainModel
         if ($alerts === []) {
             return;
         }
-        $app  = (string) Config::get('app.name', 'Gestion de Credenciales');
-        $body = "Resumen de alertas de {$app} - " . date('d/m/Y H:i') . "\n\n";
-        foreach ($alerts as $alert) {
-            $body .= sprintf("[%s] %s\n    %s\n\n", strtoupper((string) $alert['severity']), $alert['title'], $alert['message']);
-        }
-        $body .= "Ingrese al sistema para revisar el detalle.\n";
-        self::send((string) correoConfigModel::obtener()['from_email'], "[{$app}] Alertas de seguridad", $body);
+        $mensaje = plantillaCorreoModel::componer('alert_digest', [
+            'app'     => (string) Config::get('app.name', 'Gestion de Credenciales'),
+            'total'   => (string) count($alerts),
+            'alertas' => plantillaCorreoModel::alertasComoHtml($alerts),
+            'fecha'   => date('d/m/Y H:i'),
+        ]);
+
+        // El cuerpo en texto plano necesita el listado sin etiquetas: la
+        // misma variable se compone de dos formas distintas.
+        $texto = plantillaCorreoModel::componer('alert_digest', [
+            'app'     => (string) Config::get('app.name', 'Gestion de Credenciales'),
+            'total'   => (string) count($alerts),
+            'alertas' => plantillaCorreoModel::alertasComoTexto($alerts),
+            'fecha'   => date('d/m/Y H:i'),
+        ])['text'];
+
+        self::send((string) correoConfigModel::obtener()['from_email'],
+            $mensaje['subject'], $texto, $mensaje['html']);
     }
 
     /**
