@@ -82,6 +82,7 @@ $esAdmin     = puede('credentials.view_all');
       <?php endif; ?>
       <?php if (puede('settings.manage')): ?>
         <a class="nav-item <?= active('/admin/configuracion', $ruta) ?>" href="<?= e(url('/admin/configuracion')) ?>"><span class="ico">⚙</span> Configuracion</a>
+        <a class="nav-item <?= active('/admin/correo', $ruta) ?>" href="<?= e(url('/admin/correo')) ?>"><span class="ico">✉</span> Correo</a>
       <?php endif; ?>
     </div>
     <?php endif; ?>

@@ -41,6 +41,7 @@ cp .env.example .env
 php bin/console.php key:generate     # genera APP_MASTER_KEY y APP_PEPPER
 php bin/console.php install          # base de datos, esquema y superadministrador
 php bin/console.php doctor           # diagnóstico de la instalación
+php bin/console.php mail:test tu@correo.com   # comprueba el envío de correo
 ```
 
 Abrir `http://localhost/credencial/` e iniciar sesión con el usuario y la

@@ -150,7 +150,7 @@ class alertaModel extends mainModel
             $sent++;
         }
 
-        if ($sent > 0 && configuracionModel::booleano('mail.enabled', false)) {
+        if ($sent > 0 && correoModel::enabled()) {
             correoModel::sendAlertDigest($alerts);
         }
 

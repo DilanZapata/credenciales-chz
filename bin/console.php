@@ -28,6 +28,8 @@ use App\Support\Migrator;
 use app\models\alertaModel;
 use app\models\autenticacionModel;
 use app\models\cifradoModel;
+use app\models\correoConfigModel;
+use app\models\correoModel;
 use app\models\exportacionModel;
 use app\models\generadorModel;
 use app\models\limitadorModel;
@@ -282,6 +284,26 @@ switch ($command) {
             );
             $rotated++;
         }
+        // La contrasena del buzon SMTP es un secreto mas y tiene que
+        // viajar con el resto del llavero, o se quedaria atada a una
+        // version de clave antigua.
+        $correo = mainModel::obtenerFila('SELECT * FROM mail_config WHERE id = 1 AND key_version IS NOT NULL');
+        if ($correo !== null) {
+            $new = cifradoModel::reenvolver($correo, cifradoModel::aad('mail_config', 1, 'smtp_password'));
+            if ($new === null) {
+                $failed++;
+            } else {
+                mainModel::ejecutarConsultaAfectadas(
+                    'UPDATE mail_config
+                        SET key_version = ?, ciphertext = ?, nonce = ?, tag = ?, wrapped_dek = ?, dek_nonce = ?, dek_tag = ?
+                      WHERE id = 1',
+                    [$new['key_version'], $new['ciphertext'], $new['nonce'], $new['tag'],
+                     $new['wrapped_dek'], $new['dek_nonce'], $new['dek_tag']]
+                );
+                $rotated++;
+            }
+        }
+
         ok($rotated . ' secreto(s) re-cifrados.');
         if ($failed > 0) { fail($failed . ' secreto(s) NO pudieron re-cifrarse. Revise la clave maestra.'); }
         break;
@@ -517,6 +539,60 @@ switch ($command) {
         $plain === 0
             ? ok('Ningun secreto presenta aspecto de texto plano.')
             : fail($plain . ' secreto(s) podrian no estar cifrados. REVISAR DE INMEDIATO.');
+
+        // Sin correo saliente la recuperacion de contrasena no llega a
+        // nadie, y el sistema no da ninguna senal de ello: quien la pide ve
+        // igualmente el mensaje de confirmacion.
+        out();
+        if (correoConfigModel::habilitado()) {
+            $correo = correoConfigModel::obtener();
+            ok('Correo saliente habilitado (' . $correo['host'] . ':' . $correo['port'] . ').');
+            if ($correo['last_test_at'] !== null && (int) $correo['last_test_ok'] !== 1) {
+                warn('La ultima prueba de envio fallo: ' . (string) $correo['last_test_error']);
+            }
+        } else {
+            warn('Correo saliente DESHABILITADO: el enlace de recuperacion de contrasena no puede enviarse.');
+            out('    Configurelo en Administracion > Correo y pruebelo con: php bin/console.php mail:test <correo>');
+        }
+        break;
+
+    /**
+     * Prueba el servidor de correo saliente desde la consola.
+     *
+     * Util cuando todavia no se puede entrar al panel: si el enlace de
+     * recuperacion no llega, esto dice exactamente en que paso falla.
+     *
+     *   php bin/console.php mail:test alguien@dominio.com
+     */
+    case 'mail:test':
+        title('Prueba del servidor de correo saliente');
+
+        $destino = $argv[2] ?? '';
+        if ($destino === '') {
+            fail('Indique la direccion de destino:  php bin/console.php mail:test <correo>');
+            exit(1);
+        }
+
+        $cfg = correoConfigModel::obtener();
+        out('  Servidor:  ' . (($cfg['host'] ?? '') !== '' ? $cfg['host'] . ':' . $cfg['port'] : '(sin configurar)'));
+        out('  Cifrado:   ' . (string) $cfg['encryption']);
+        out('  Usuario:   ' . (($cfg['username'] ?? '') !== '' ? (string) $cfg['username'] : '(sin autenticacion)'));
+        out('  Remitente: ' . (string) $cfg['from_email']);
+        out('  Estado:    ' . (correoConfigModel::habilitado() ? 'habilitado' : 'DESHABILITADO'));
+        out();
+
+        try {
+            correoModel::enviarPrueba($destino, 'consola');
+            correoConfigModel::registrarPrueba(true, null);
+            ok('Mensaje entregado al servidor. Revise la bandeja de ' . $destino . '.');
+        } catch (Throwable $e) {
+            correoConfigModel::registrarPrueba(false, $e->getMessage());
+            fail('El envio fallo: ' . $e->getMessage());
+            out();
+            warn('Con Gmail: smtp.gmail.com, puerto 587, cifrado tls, y una contrasena');
+            warn('de aplicacion generada en la cuenta de Google (no la contrasena normal).');
+            exit(1);
+        }
         break;
 
     case 'seed:demo':
@@ -625,6 +701,7 @@ switch ($command) {
         out('  user:bootstrap  Crea el primer superadministrador sin preguntas (contenedores)');
         out('  user:reset      Restablece la contrasena de un usuario: user:reset <usuario>');
         out('  user:mfa-off    Desactiva el segundo factor: user:mfa-off <usuario>');
+        out('  mail:test       Prueba el servidor de correo: mail:test <correo>');
         out('  alerts:run      Evalua y despacha alertas (programar en cron)');
         out('  maintenance     Purga archivos, sesiones y limitadores vencidos (cron)');
         out('  key:rotate      Rota el llavero y re-cifra los secretos');

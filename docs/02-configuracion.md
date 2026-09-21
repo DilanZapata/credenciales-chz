@@ -121,25 +121,74 @@ orígenes de la lista blanca exacta.
 | `exports.retention_minutes` | 15 | Vida del archivo generado antes de purgarse |
 | `exports.max_records` | 5000 | Tope de registros por exportación |
 
-### Grupo `alertas` (correo)
-
-| Clave | Por defecto | Efecto |
-|---|---|---|
-| `mail.enabled` | 0 | Habilita el envío de notificaciones por correo |
-| `mail.from` | no-reply@empresa.local | Remitente |
-
-> El correo **nunca transporta contraseñas**. `MailService` incluye un
-> cortafuegos que descarta cualquier mensaje cuyo cuerpo tenga aspecto de
-> contener un secreto, y la recuperación de cuenta envía siempre un enlace de
-> un solo uso, jamás la contraseña actual.
-
 Todo cambio en esta pantalla exige reautenticación y queda registrado en la
 auditoría como evento de severidad **crítica**, con el detalle exacto de qué
 claves cambiaron.
 
 ---
 
-## 2.3 Cabeceras de seguridad (`config/security.php`)
+## 2.3 Correo saliente
+
+El servidor de correo no se configura en la pantalla anterior, sino en
+*Administración → Correo* (`/admin/correo`). Vive en su propia tabla
+(`mail_config`) por dos motivos: la contraseña del buzón es un secreto y se
+guarda cifrada con el mismo sobre AES-256-GCM que los secretos de las
+credenciales, y `settings` recorta cualquier texto a 500 caracteres.
+
+| Campo | Por defecto | Efecto |
+|---|---|---|
+| Habilitar el envío | apagado | Sin esto no sale ningún mensaje |
+| Servidor / Puerto | — / 587 | Host SMTP |
+| Cifrado | `tls` | `tls` = STARTTLS (587), `ssl` = TLS implícito (465), `none` = sin cifrar |
+| Usuario / Contraseña | — | Vacíos si el relay no exige autenticación |
+| Remitente / Nombre visible | no-reply@empresa.local | Cabecera `From` |
+| Responder a | — | Cabecera `Reply-To` |
+| Espera máxima | 10 s | Tiempo antes de dar la conexión por perdida |
+
+> El correo **nunca transporta contraseñas**. `correoModel` incluye un
+> cortafuegos que descarta cualquier mensaje cuyo cuerpo tenga aspecto de
+> contener un secreto, y la recuperación de cuenta envía siempre un enlace de
+> un solo uso, jamás la contraseña actual.
+
+#### Gmail
+
+Google no acepta la contraseña normal de la cuenta en SMTP. Hay que activar la
+verificación en dos pasos y generar una **contraseña de aplicación** de 16
+caracteres; esa es la que se guarda aquí.
+
+| | |
+|---|---|
+| Servidor | `smtp.gmail.com` |
+| Puerto | `587` |
+| Cifrado | STARTTLS |
+| Usuario | la dirección completa de la cuenta |
+| Remitente | la propia cuenta o un alias verificado |
+
+Una cuenta gratuita admite del orden de 500 mensajes al día.
+
+#### Comprobar que funciona
+
+La pantalla tiene un botón **Enviar prueba** que muestra literalmente lo que
+respondió el servidor si el envío falla. Desde la consola, cuando todavía no se
+puede entrar al panel:
+
+```bash
+php bin/console.php mail:test alguien@dominio.com
+```
+
+Los fallos de envío quedan en el registro técnico (`storage/logs/`) con el
+motivo. Si el correo de recuperación no llega y aquí no hay nada, es que la
+solicitud no llegó a generar el mensaje: el identificador no correspondía a una
+cuenta **activa**.
+
+> Mientras el envío esté apagado, quien pida recuperar su contraseña verá el
+> mensaje de confirmación de todos modos —la respuesta es idéntica exista o no
+> la cuenta, para no filtrar cuáles existen— pero no recibirá nada. La salida de
+> emergencia es `php bin/console.php user:reset <usuario>`.
+
+---
+
+## 2.4 Cabeceras de seguridad (`config/security.php`)
 
 Aplicadas a toda respuesta HTML:
 

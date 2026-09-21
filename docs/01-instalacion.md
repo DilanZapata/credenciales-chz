@@ -182,6 +182,9 @@ Lista de verificación antes de abrir el sistema a los usuarios:
 - [ ] Usuario de base de datos dedicado, no `root`, con permisos únicamente
       sobre la base del sistema.
 - [ ] MFA activado para todos los perfiles administrativos.
+- [ ] Servidor de correo configurado en *Administración → Correo* y comprobado
+      con `php bin/console.php mail:test <correo>`. Sin esto, la recuperación de
+      contraseña no puede llegar a nadie.
 - [ ] Tareas programadas configuradas (siguiente apartado).
 - [ ] `php bin/console.php doctor` sin errores.
 - [ ] `php tests/run.php` con 209/209.

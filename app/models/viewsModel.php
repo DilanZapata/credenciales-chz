@@ -71,6 +71,7 @@ class viewsModel
         'admin-organizacion'     => ['busqueda.js'],
         'admin-roles'            => ['busqueda.js'],
         'admin-configuracion'    => ['busqueda.js'],
+        'admin-correo'           => ['busqueda.js'],
     ];
 
     /**
@@ -130,6 +131,7 @@ class viewsModel
         '/admin/organizacion'            => 'admin-organizacion',
         '/admin/roles'                   => 'admin-roles',
         '/admin/configuracion'           => 'admin-configuracion',
+        '/admin/correo'                  => 'admin-correo',
     ];
 
     /**

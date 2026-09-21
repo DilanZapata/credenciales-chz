@@ -312,6 +312,13 @@ class despachoController extends baseController
                 self::resultado(catalogoController::guardarConfiguracionController($c),
                     'Configuracion actualizada.', '/admin/configuracion');
 
+            case '/admin/correo':
+                self::resultado(correoController::guardarController($c),
+                    'Configuracion de correo actualizada.', '/admin/correo');
+
+            case '/admin/correo/prueba':
+                self::probarCorreo($c);
+
             default:
                 // Direccion valida para leer pero no para escribir (o
                 // inexistente): no se dice cual de las dos.
@@ -413,6 +420,39 @@ class despachoController extends baseController
         // Respuesta identica exista o no la cuenta: no se filtra informacion.
         self::exito('Si el identificador corresponde a una cuenta activa, recibira un correo con las instrucciones.');
         self::salir('/entrar');
+    }
+
+    /**
+     * Prueba del servidor de correo.
+     *
+     * A diferencia del resto de formularios, aqui el fallo es la
+     * informacion util: quien configura necesita leer literalmente lo que
+     * contesto el servidor para saber si es el puerto, el certificado o la
+     * contrasena de aplicacion.
+     *
+     * @param array<string,mixed> $c
+     */
+    private static function probarCorreo(array $c): never
+    {
+        $r = correoController::probarController($c);
+        $d = $r['data'] ?? [];
+
+        if (($r['status'] ?? '') !== 'success') {
+            if (isset($r['errors']) && is_array($r['errors'])) {
+                Flash::set('errors', $r['errors']);
+                self::error((string) $r['message']);
+                self::salir('/admin/correo');
+            }
+            self::paginaError((int) ($r['code'] ?? 400), self::tituloError((int) ($r['code'] ?? 400)),
+                (string) $r['message']);
+        }
+
+        if ((bool) ($d['ok'] ?? false)) {
+            self::exito('Correo de prueba enviado. Revise la bandeja de entrada.');
+        } else {
+            self::error('El servidor rechazo el envio: ' . (string) ($d['error'] ?? 'motivo desconocido'));
+        }
+        self::salir('/admin/correo');
     }
 
     /** @param array<string,mixed> $c */
@@ -670,6 +710,7 @@ class despachoController extends baseController
             '/admin/sedes',
             '/admin/departamentos'            => '/admin/organizacion',
             '/admin/roles/{id}/permisos'      => '/admin/roles',
+            '/admin/correo/prueba'            => '/admin/correo',
 
             '/consulta',
             '/consulta/revelar',

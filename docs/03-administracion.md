@@ -290,6 +290,23 @@ En un despliegue con Docker se ejecuta desde la terminal del contenedor:
 docker exec -it <contenedor> php bin/console.php user:reset admin
 ```
 
+### Para que el correo de recuperación sí llegue
+
+Mientras *Administración → Correo* no tenga un servidor SMTP configurado y
+habilitado, la pantalla de recuperación responde igual que siempre —«si el
+identificador corresponde a una cuenta activa, recibirá un correo»— pero no sale
+ningún mensaje. La respuesta es idéntica a propósito, para no revelar qué
+cuentas existen.
+
+Para comprobar el envío sin pasar por el navegador:
+
+```bash
+php bin/console.php mail:test alguien@dominio.com
+```
+
+Los detalles de configuración están en
+[02-configuracion.md](02-configuracion.md#23-correo-saliente).
+
 Queda registrado en la auditoría como cualquier otro cambio de
 contraseña.
 

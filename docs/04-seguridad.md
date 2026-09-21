@@ -272,7 +272,7 @@ Garantía explícita, verificada por pruebas automáticas:
 | **Intentos de acceso** | Se guarda el identificador intentado, **nunca la contraseña** |
 | **Respuestas de API** | Ningún endpoint devuelve secretos salvo el dedicado |
 | **Mensajes de error** | En producción no se expone el mensaje interno, ni la traza, ni el SQL |
-| **Correo** | `MailService` bloquea cualquier mensaje cuyo cuerpo tenga aspecto de contener un secreto |
+| **Correo** | `correoModel` bloquea cualquier mensaje cuyo cuerpo tenga aspecto de contener un secreto. La contrasena del buzon SMTP se guarda cifrada y nunca vuelve a la pantalla |
 | **Archivos temporales** | El CSV de importación se elimina en cuanto se lee |
 
 ---

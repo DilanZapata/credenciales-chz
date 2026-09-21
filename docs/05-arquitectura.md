@@ -150,7 +150,7 @@ finos (ver / copiar / recuperación), vigencia, quién otorgó y quién revocó.
 
 ### Operación
 `sessions` · `rate_limits` · `notifications` · `password_resets` ·
-`mfa_secrets` · `mfa_backup_codes` · `settings`
+`mfa_secrets` · `mfa_backup_codes` · `settings` · `mail_config`
 
 ### Relación central
 
